@@ -199,6 +199,35 @@ def test_linked_caption_places_event_details_before_links():
     )
 
 
+def test_linked_caption_adjusts_publication_text_to_first_event_date():
+    """Linked promo text follows the date of its first event without mutation."""
+    promo = {
+        "text": "Este viernes llegan los eventos.",
+        "linked_events": [
+            {
+                "event_id": "event-1",
+                "summary": "Meetup",
+                "event_start": "2026-10-20T18:00:00-06:00",
+                "display_order": 0,
+            },
+            {
+                "event_id": "event-2",
+                "summary": "Coffee",
+                "event_start": "2026-10-20T20:30:00-06:00",
+                "display_order": 1,
+            },
+        ],
+    }
+
+    caption = manual_promos.format_manual_promo_caption(
+        promo,
+        now=datetime(2026, 10, 18, 9, 0, tzinfo=manual_promos.MANUAL_PROMO_TIMEZONE),
+    )
+
+    assert "Este martes llegan los eventos." in caption
+    assert promo["text"] == "Este viernes llegan los eventos."
+
+
 def test_linked_reminders_use_per_event_keys_and_deduplicate(tmp_path):
     """Each linked event gets its own reminder stage and sends only once."""
     promo = manual_promos.build_manual_promo(

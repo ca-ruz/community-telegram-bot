@@ -190,37 +190,79 @@ def test_manual_promo_caption_does_not_duplicate_existing_details():
     assert caption.count("📍 Community Space") == 1
 
 
-def test_same_day_reminder_rewrites_relative_next_day_wording():
-    """Same-day reminder captions use event-day wording without changing the promo."""
+def test_same_day_promo_caption_uses_today_wording_without_changing_the_promo():
+    """Event-day captions say today without changing the stored promo text."""
     promo = {
         "event_start": "2026-10-31T11:00:00-06:00",
-        "text": "Mañana hay Coffee + Bitcoin! Tomorrow is the event.",
+        "text": "Este sábado hay Coffee + Bitcoin! This Saturday is the event.",
     }
 
     caption = manual_promos.format_manual_promo_caption(
         promo,
-        reminder_stage="same_day",
+        now=datetime(2026, 10, 31, 9, 0, tzinfo=manual_promos.MANUAL_PROMO_TIMEZONE),
     )
 
-    assert "Más tarde hoy hay Coffee + Bitcoin! Later today is the event." in caption
-    assert "Mañana" not in caption
-    assert "Tomorrow" not in caption
-    assert promo["text"] == "Mañana hay Coffee + Bitcoin! Tomorrow is the event."
+    assert "Hoy hay Coffee + Bitcoin! Today is the event." in caption
+    assert "Este sábado" not in caption
+    assert "This Saturday" not in caption
+    assert promo["text"] == "Este sábado hay Coffee + Bitcoin! This Saturday is the event."
 
 
-def test_non_same_day_caption_preserves_original_relative_wording():
-    """Initial and next-day publications retain their authored wording."""
+def test_promo_caption_uses_tomorrow_wording_one_day_before_event():
+    """Captions published the day before use tomorrow wording."""
     promo = {
         "event_start": "2026-10-31T11:00:00-06:00",
-        "text": "Mañana hay Coffee + Bitcoin!",
+        "text": "Este sábado hay Coffee + Bitcoin!",
     }
 
     caption = manual_promos.format_manual_promo_caption(
         promo,
-        reminder_stage="24h",
+        now=datetime(2026, 10, 30, 9, 0, tzinfo=manual_promos.MANUAL_PROMO_TIMEZONE),
     )
 
     assert "Mañana hay Coffee + Bitcoin!" in caption
+
+
+def test_promo_caption_uses_event_weekday_two_days_before_event():
+    """Captions two calendar days before use the event weekday."""
+    promo = {
+        "event_start": "2026-10-20T18:00:00-06:00",
+        "text": "Este viernes llega BitDevs!",
+    }
+
+    caption = manual_promos.format_manual_promo_caption(
+        promo,
+        now=datetime(2026, 10, 18, 9, 0, tzinfo=manual_promos.MANUAL_PROMO_TIMEZONE),
+    )
+
+    assert "Este martes llega BitDevs!" in caption
+    assert promo["text"] == "Este viernes llega BitDevs!"
+
+
+def test_promo_caption_replaces_tomorrow_when_event_is_two_days_away():
+    """Stale tomorrow wording becomes the weekday when the event is farther away."""
+    caption = manual_promos.format_manual_promo_caption(
+        {
+            "event_start": "2026-10-20T18:00:00-06:00",
+            "text": "Mañana llega BitDevs!",
+        },
+        now=datetime(2026, 10, 18, 9, 0, tzinfo=manual_promos.MANUAL_PROMO_TIMEZONE),
+    )
+
+    assert "Este martes llega BitDevs!" in caption
+
+
+def test_promo_caption_uses_english_relative_date_wording():
+    """English relative date cues follow the event date too."""
+    caption = manual_promos.format_manual_promo_caption(
+        {
+            "event_start": "2026-10-20T18:00:00-06:00",
+            "text": "Tomorrow is BitDevs!",
+        },
+        now=datetime(2026, 10, 18, 9, 0, tzinfo=manual_promos.MANUAL_PROMO_TIMEZONE),
+    )
+
+    assert "This Tuesday is BitDevs!" in caption
 
 
 def test_manual_promo_caption_places_links_after_event_details():
