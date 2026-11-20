@@ -29,6 +29,15 @@ SPANISH_WEEKDAYS = (
     "sábado",
     "domingo",
 )
+ENGLISH_WEEKDAYS = (
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+    "Sunday",
+)
 SPANISH_MONTHS = (
     "enero",
     "febrero",
@@ -44,6 +53,13 @@ SPANISH_MONTHS = (
     "diciembre",
 )
 URL_PATTERN = re.compile(r"https?://[^\s<>]+")
+EVENT_DATE_CUE_PATTERN = re.compile(
+    r"\b(?P<spanish_weekday>este\s+(?:lunes|martes|miércoles|jueves|viernes|sábado|domingo))\b"
+    r"|\b(?P<english_weekday>this\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b"
+    r"|\b(?P<spanish_tomorrow>mañana)\b"
+    r"|\b(?P<english_tomorrow>tomorrow)\b",
+    re.IGNORECASE,
+)
 
 
 def load_manual_promos(file_path):
@@ -142,35 +158,48 @@ def _split_manual_promo_links(text):
     return text_without_links, links
 
 
-def _adjust_same_day_reminder_text(text, reminder_stage):
-    """Replace relative next-day wording only in same-day reminder copies."""
-    if reminder_stage != "same_day":
+def _adjust_event_date_wording(text, event_start, now=None):
+    """Align recognized relative date phrases with the event's local calendar day."""
+    if not event_start:
         return text
 
-    replacements = (
-        (r"\bmañana\b", "más tarde hoy"),
-        (r"\btomorrow\b", "later today"),
-    )
+    try:
+        event_time = datetime.fromisoformat(str(event_start).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return text
+    if event_time.tzinfo is None:
+        event_time = event_time.replace(tzinfo=MANUAL_PROMO_TIMEZONE)
+    event_date = event_time.astimezone(MANUAL_PROMO_TIMEZONE).date()
+
+    current_time = now or datetime.now(MANUAL_PROMO_TIMEZONE)
+    if current_time.tzinfo is None:
+        current_time = current_time.replace(tzinfo=MANUAL_PROMO_TIMEZONE)
+    current_date = current_time.astimezone(MANUAL_PROMO_TIMEZONE).date()
+    days_until_event = (event_date - current_date).days
+    if days_until_event < 0:
+        return text
 
     def replace(match):
-        replacement = next(
-            value
-            for pattern, value in replacements
-            if re.fullmatch(pattern, match.group(0), flags=re.IGNORECASE)
-        )
-        if match.group(0)[0].isupper():
-            replacement = replacement.capitalize()
+        is_spanish = match.lastgroup in {"spanish_weekday", "spanish_tomorrow"}
+        if days_until_event == 0:
+            replacement = "Hoy" if is_spanish else "Today"
+        elif days_until_event == 1:
+            replacement = "Mañana" if is_spanish else "Tomorrow"
+        elif is_spanish:
+            weekday = SPANISH_WEEKDAYS[event_date.weekday()]
+            replacement = f"Este {weekday}"
+        else:
+            weekday = ENGLISH_WEEKDAYS[event_date.weekday()]
+            replacement = f"This {weekday}"
+
+        original = match.group(0)
+        if original.isupper():
+            return replacement.upper()
+        if original[0].islower():
+            return replacement.lower()
         return replacement
 
-    adjusted_text = text
-    for pattern, _replacement in replacements:
-        adjusted_text = re.sub(
-            pattern,
-            replace,
-            adjusted_text,
-            flags=re.IGNORECASE,
-        )
-    return adjusted_text
+    return EVENT_DATE_CUE_PATTERN.sub(replace, text)
 
 
 def _format_linked_event_section(event):
@@ -200,17 +229,21 @@ def format_manual_promo_caption(
     promo,
     community_group_url="",
     reminder_event=None,
-    reminder_stage=None,
+    now=None,
 ):
     """Build the final HTML caption for a manually staged event promo."""
+    linked_events = promo.get("linked_events") or []
+    event_start = promo.get("event_start")
+    if not event_start and linked_events:
+        event_start = linked_events[0].get("event_start")
     publication_text, links = _split_manual_promo_links(
-        _adjust_same_day_reminder_text(
+        _adjust_event_date_wording(
             str(promo.get("text", "")).strip(),
-            reminder_stage,
+            event_start,
+            now,
         )
     )
 
-    linked_events = promo.get("linked_events") or []
     if linked_events:
         sections = [escape(publication_text)] if publication_text else []
         if reminder_event:
@@ -393,7 +426,6 @@ async def deliver_manual_promo(
         promo,
         community_group_url,
         reminder_event=reminder_event,
-        reminder_stage=stage,
     )
 
     for subscriber_id in subscribers:
@@ -487,7 +519,6 @@ async def deliver_registered_manual_promo(
         promo,
         community_group_url,
         reminder_event=reminder_event,
-        reminder_stage="same_day" if stage == "registered_1h" else stage,
     )
 
     for user_id in registered_users:

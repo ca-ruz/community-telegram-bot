@@ -1,6 +1,6 @@
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 from bot.handlers.admin import (
     format_status_detail,
@@ -315,7 +315,8 @@ def test_status_reports_payment_deployment_configuration():
 
 
 def test_status_reports_current_period_for_multi_period_payment_state():
-    """Admin status reports the current period after payment-state migration."""
+    """Admin status selects the mocked current period from multi-period state."""
+    current_period = "2026-10"
     reply_text = AsyncMock()
     update = SimpleNamespace(
         effective_user=SimpleNamespace(id=42),
@@ -326,14 +327,21 @@ def test_status_reports_current_period_for_multi_period_payment_state():
         "groups": set(),
         "pending_promos": {},
         "members": {},
-        "payment_state": {"version": 2, "periods": {"2026-10": {}, "2026-11": {}}},
+        "payment_state": {
+            "version": 2,
+            "periods": {current_period: {}, "2026-11": {}},
+        },
     }
     config = {"CHECK_INTERVAL_MINUTES": 30}
 
-    asyncio.run(status(update, SimpleNamespace(), 42, state, config))
+    with patch(
+        "bot.handlers.admin.current_billing_period",
+        return_value=current_period,
+    ):
+        asyncio.run(status(update, SimpleNamespace(), 42, state, config))
 
     message = reply_text.await_args.args[0]
-    assert "Payment period:</b> 2026-10" in message
+    assert f"Payment period:</b> {current_period}" in message
 
 
 def test_status_reports_coworking_deployment_configuration():
