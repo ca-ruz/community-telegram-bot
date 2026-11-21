@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
 from tools.local.calendar_api import get_calendar_service_with_creds, fetch_upcoming_events, extract_link, friendly_delta
-from tools.local.meetup_ics import fetch_meetup_ics_events
+from tools.local.meetup_ics import DEFAULT_LOOKAHEAD_DAYS, fetch_meetup_ics_events
 from tools.local.data_manager import save_json
 from core.notification_preferences import filter_users_by_category
 from core.reminder_timing import get_event_reminder_stage
@@ -24,14 +24,20 @@ logger = logging.getLogger(__name__)
 GDL_TZ = ZoneInfo("America/Mexico_City")
 
 
-def fetch_upcoming_events_for_source(config, days=8):
+def fetch_upcoming_events_for_source(config, days=None):
     """Fetch upcoming events from the explicitly configured event source."""
     source = str(config.get("EVENT_SOURCE", "google_calendar")).strip().lower()
     if source == "meetup_ics":
+        lookahead_days = days
+        if lookahead_days is None:
+            lookahead_days = config.get(
+                "MEETUP_ICS_LOOKAHEAD_DAYS",
+                DEFAULT_LOOKAHEAD_DAYS,
+            )
         now = datetime.now(timezone.utc)
         events = fetch_meetup_ics_events(
             config.get("MEETUP_ICS_URL", ""),
-            days=days,
+            days=lookahead_days,
             now=now,
         )
         return events, now
@@ -43,7 +49,12 @@ def fetch_upcoming_events_for_source(config, days=8):
         config["SCOPES"],
         config["SERVICE_ACCOUNT_FILE"],
     )
-    return fetch_upcoming_events(service, config["CALENDAR_ID"], days=days)
+    google_lookahead_days = 8 if days is None else days
+    return fetch_upcoming_events(
+        service,
+        config["CALENDAR_ID"],
+        days=google_lookahead_days,
+    )
 
 def cleanup_sent_reminders(sent_reminders, reminders_file, now=None):
     """
@@ -136,8 +147,16 @@ def _event_reminder_message(event, now, community_group_url=""):
 
 async def send_manual_event_reminder(context, config, state, event_id):
     """Send one manually requested event reminder to eligible DMs and groups."""
+    source = str(config.get("EVENT_SOURCE", "google_calendar")).strip().lower()
+    meetup_lookahead_days = config.get(
+        "MEETUP_ICS_LOOKAHEAD_DAYS",
+        DEFAULT_LOOKAHEAD_DAYS,
+    )
     try:
-        events, now = fetch_upcoming_events_for_source(config)
+        events, now = fetch_upcoming_events_for_source(
+            config,
+            days=meetup_lookahead_days if source == "meetup_ics" else None,
+        )
     except Exception:
         logger.exception("Could not fetch calendar events for manual reminder %s.", event_id)
         return {"found": False, "subscribers_sent": 0, "groups_sent": 0, "failures": 1}
@@ -146,7 +165,6 @@ async def send_manual_event_reminder(context, config, state, event_id):
     if not event:
         return {"found": False, "subscribers_sent": 0, "groups_sent": 0, "failures": 0}
 
-    source = str(config.get("EVENT_SOURCE", "google_calendar")).strip().lower()
     if source == "meetup_ics":
         imported_key = get_imported_event_key(source, event_id)
         imported_event = state.get("imported_events", {}).get(imported_key, {})
@@ -303,6 +321,10 @@ async def check_calendar(context, config, state):
     Orchestrator job that runs periodically to poll the calendar and send reminders.
     """
     source = str(config.get("EVENT_SOURCE", "google_calendar")).strip().lower()
+    meetup_lookahead_days = config.get(
+        "MEETUP_ICS_LOOKAHEAD_DAYS",
+        DEFAULT_LOOKAHEAD_DAYS,
+    )
     logger.info("Polling %s for upcoming events...", source)
     
     sent_reminders = state['sent_reminders']
@@ -318,7 +340,10 @@ async def check_calendar(context, config, state):
     )
     
     try:
-        events, now = fetch_upcoming_events_for_source(config)
+        events, now = fetch_upcoming_events_for_source(
+            config,
+            days=meetup_lookahead_days if source == "meetup_ics" else None,
+        )
     except Exception as e:
         logger.error(f"Terminating calendar check due to fetch error: {e}")
         return
@@ -329,7 +354,7 @@ async def check_calendar(context, config, state):
             events,
             source,
             now=now,
-            lookahead_days=8,
+            lookahead_days=meetup_lookahead_days,
         )
         save_imported_events(config["IMPORTED_EVENTS_FILE"], imported_events)
 

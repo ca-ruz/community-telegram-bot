@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 MEETUP_TIMEZONE = ZoneInfo("America/Mexico_City")
 DEFAULT_TIMEOUT_SECONDS = 20
-DEFAULT_LOOKAHEAD_DAYS = 8
+DEFAULT_LOOKAHEAD_DAYS = 35
 URL_PATTERN = re.compile(r"https?://[^\s<>]+")
 LOCATION_PATTERNS = (
     re.compile(r"^\s*Nos vemos en\s+(.+?)\s*:?\s*$", re.IGNORECASE | re.MULTILINE),
