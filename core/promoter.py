@@ -123,14 +123,23 @@ def _event_storage_key(event):
     return f"{event['id']}_{event_time.strftime('%Y%m%dT%H%M%SZ')}"
 
 
-def _event_reminder_message(event, now, community_group_url=""):
+def _event_reminder_message(
+    event,
+    now,
+    community_group_url="",
+    community_website_url="https://btcgdl.com/",
+):
     """Build the HTML reminder message for one calendar event."""
     start_raw = event["start"].get("dateTime", event["start"].get("date"))
     event_time = datetime.fromisoformat(start_raw.replace("Z", "+00:00"))
     if event_time.tzinfo is None:
         event_time = event_time.replace(tzinfo=GDL_TZ)
     description = event.get("description", "")
-    link = extract_link(description) or event.get("htmlLink", "https://btcgdl.com")
+    link = (
+        extract_link(description)
+        or event.get("htmlLink")
+        or community_website_url
+    )
     event_time_gdl = event_time.astimezone(GDL_TZ)
     formatted_date = event_time_gdl.strftime("%d/%m")
     formatted_time = event_time_gdl.strftime("%I:%M %p")
@@ -197,6 +206,7 @@ async def send_manual_event_reminder(context, config, state, event_id):
         event,
         now,
         config.get("COMMUNITY_GROUP_URL", ""),
+        config.get("COMMUNITY_WEBSITE_URL", "https://btcgdl.com/"),
     )
     subscribers_sent = 0
     groups_sent = 0
@@ -262,6 +272,7 @@ async def send_manual_event_reminder_test(context, config, admin_id, event_id):
         event,
         now,
         config.get("COMMUNITY_GROUP_URL", ""),
+        config.get("COMMUNITY_WEBSITE_URL", "https://btcgdl.com/"),
     )
     try:
         await context.bot.send_message(
@@ -441,7 +452,11 @@ async def check_calendar(context, config, state):
 
             description = event.get("description", "")
             desc_link = extract_link(description)
-            link = desc_link if desc_link else event.get("htmlLink", "https://btcgdl.com")
+            link = (
+                desc_link
+                or event.get("htmlLink")
+                or config.get("COMMUNITY_WEBSITE_URL", "https://btcgdl.com/")
+            )
             
             event_time_gdl = event_time.astimezone(GDL_TZ)
             formatted_date = event_time_gdl.strftime("%d/%m")

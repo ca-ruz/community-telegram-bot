@@ -165,7 +165,14 @@ CONFIG = {
     'PAYMENT_ADMIN_ID': parse_env_int('PAYMENT_ADMIN_ID', 0),
     'COMMUNITY_GROUP_URL': os.getenv('COMMUNITY_GROUP_URL', '').strip(),
     'COMMUNITY_NAME': parse_env_string('COMMUNITY_NAME', 'BTC GDL'),
-    'COMMUNITY_CITY': parse_env_string('COMMUNITY_CITY', 'Guadalajara'),
+    'COMMUNITY_DISPLAY_NAME': parse_env_string(
+        'COMMUNITY_DISPLAY_NAME',
+        'Bitcoin & Lightning GDL',
+    ),
+    'COMMUNITY_CITY': parse_env_string(
+        'COMMUNITY_CITY',
+        'Guadalajara, Mexico',
+    ),
     'COMMUNITY_TIMEZONE': parse_env_timezone(
         'COMMUNITY_TIMEZONE',
         'America/Mexico_City',
@@ -393,7 +400,10 @@ def main():
             BotCommand("menu", "Abrir el menu"),
             BotCommand("suscripciones", "Administrar suscripciones"),
             BotCommand("meetup", "Ver eventos en Meetup"),
-            BotCommand("eventos", "Ver eventos de Bitcoin & Lightning GDL"),
+            BotCommand(
+                "eventos",
+                f"Ver eventos de {CONFIG['COMMUNITY_DISPLAY_NAME']}",
+            ),
             BotCommand("bitdevs", "Ver BitDevs"),
             BotCommand("web", "Visitar el sitio web"),
         ]
@@ -509,11 +519,13 @@ def main():
         coffee_hosts=STATE['coffee_hosts'],
         telegram_metadata=STATE['telegram_metadata'],
         telegram_metadata_file=CONFIG['TELEGRAM_METADATA_FILE'],
+        config=CONFIG,
     )))
     app.add_handler(CommandHandler("menu", partial(
         menu,
         admin_id=CONFIG['ADMIN_ID'],
         coffee_hosts=STATE['coffee_hosts'],
+        config=CONFIG,
     )))
     app.add_handler(CommandHandler("suscripciones", partial(
         subscriptions,
@@ -529,10 +541,10 @@ def main():
         coffee_hosts=STATE['coffee_hosts'],
         coffee_host_schedule=STATE['coffee_host_schedule'],
     )))
-    app.add_handler(CommandHandler("meetup", meetup))
-    app.add_handler(CommandHandler("eventos", eventos))
-    app.add_handler(CommandHandler("bitdevs", bitdevs))
-    app.add_handler(CommandHandler("web", web))
+    app.add_handler(CommandHandler("meetup", partial(meetup, config=CONFIG)))
+    app.add_handler(CommandHandler("eventos", partial(eventos, config=CONFIG)))
+    app.add_handler(CommandHandler("bitdevs", partial(bitdevs, config=CONFIG)))
+    app.add_handler(CommandHandler("web", partial(web, config=CONFIG)))
     
     # Admin Command Handlers
     app.add_handler(CommandHandler("broadcast", 
@@ -559,7 +571,12 @@ def main():
             state=STATE,
         )))
     app.add_handler(CommandHandler("addevent",
-        partial(add_event, admin_id=CONFIG['ADMIN_ID'], ai_service=AI_SERVICE)))
+        partial(
+            add_event,
+            admin_id=CONFIG['ADMIN_ID'],
+            ai_service=AI_SERVICE,
+            config=CONFIG,
+        )))
     app.add_handler(CommandHandler("editevent",
         partial(edit_event_start, admin_id=CONFIG['ADMIN_ID'], config=CONFIG)))
     app.add_handler(CommandHandler("deleteevent",
@@ -752,6 +769,7 @@ def main():
             community_group_url=CONFIG['COMMUNITY_GROUP_URL'],
             telegram_metadata=STATE['telegram_metadata'],
             telegram_metadata_file=CONFIG['TELEGRAM_METADATA_FILE'],
+            config=CONFIG,
         )))
 
     # Smart Admin Chat Handler (Natural Language)

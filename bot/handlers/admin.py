@@ -7,7 +7,11 @@ from telegram.ext import ContextTypes
 from telegram.constants import ParseMode
 from tools.local.calendar_api import get_calendar_service_with_creds, fetch_upcoming_events, create_calendar_event
 from tools.local.data_manager import load_json, save_json
-from core.prompts import PROMOTER_SYSTEM_PROMPT, EVENT_PARSER_SYSTEM_PROMPT, INTENT_DETECTOR_PROMPT
+from core.prompts import (
+    build_event_parser_prompt,
+    build_intent_detector_prompt,
+    build_promoter_system_prompt,
+)
 from datetime import date, datetime, timezone
 from core.coffee_hosts import (
     COFFEE_TIMEZONE,
@@ -2276,8 +2280,9 @@ def format_status_overview(state, config):
     coworking_quiet_hours = config.get("COWORKING_QUIET_WINDOW_HOURS", 24)
     coworking_state = state.get("coworking", {})
     coworking_last_sent = coworking_state.get("last_sent_week", "Nunca")
+    community_name = escape(str(config.get("COMMUNITY_NAME", "BTC GDL")))
     msg = (
-        f"📊 <b>BTC GDL Bot Status</b>\n\n"
+        f"📊 <b>{community_name} Bot Status</b>\n\n"
         f"👤 <b>Known users:</b> {status_counts['known_users']}\n"
         f"👥 <b>Subscribers:</b> {status_counts['subscribers']}\n"
         f"📢 <b>Broadcast Groups:</b> {status_counts['broadcast_groups']}\n"
@@ -2630,7 +2635,15 @@ async def handle_edit_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 # --- ADD LOGIC ---
 
-async def add_event(update: Update, context: ContextTypes.DEFAULT_TYPE, admin_id, ai_service, forced_text=None, status_msg=None):
+async def add_event(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    admin_id,
+    ai_service,
+    forced_text=None,
+    status_msg=None,
+    config=None,
+):
     """
     Admin-only command to create a new calendar event using AI parsing.
     """
@@ -2646,7 +2659,7 @@ async def add_event(update: Update, context: ContextTypes.DEFAULT_TYPE, admin_id
         status_msg = await update.message.reply_text("⏳ Procesando detalles y buscando dirección... Por favor espera.")
     
     current_date = datetime.now().strftime("%Y-%m-%d")
-    prompt = EVENT_PARSER_SYSTEM_PROMPT.format(current_date=current_date)
+    prompt = build_event_parser_prompt(current_date, config)
     res = await ai_service.generate_event_promo(desc, prompt)
     if not res: 
         await status_msg.edit_text("❌ Falló la generación del evento.")
@@ -2711,13 +2724,22 @@ async def generate_promo_for_event(event, context, admin_id, ai_service, state, 
     save_json(config['PROMOTED_FILE'], notified)
 
     logger.info(f"{'Refining' if instructions else 'Generating'} AI promo for: {event_summary}")
+    promoter_prompt = build_promoter_system_prompt(config)
 
     if instructions:
         await context.bot.send_message(admin_id, "🔄 Refinando promoción... Por favor espera. (Costo de créditos aplicado).")
         current = state['pending_promos'].get(str(admin_id), {})
-        raw = await ai_service.refine_event_promo(json.dumps(event_info), json.dumps(current), instructions, PROMOTER_SYSTEM_PROMPT)
+        raw = await ai_service.refine_event_promo(
+            json.dumps(event_info),
+            json.dumps(current),
+            instructions,
+            promoter_prompt,
+        )
     else:
-        raw = await ai_service.generate_event_promo(json.dumps(event_info), PROMOTER_SYSTEM_PROMPT)
+        raw = await ai_service.generate_event_promo(
+            json.dumps(event_info),
+            promoter_prompt,
+        )
 
     if not raw:
         await context.bot.send_message(admin_id, "❌ Falló la generación de OpenAI.")
@@ -2881,7 +2903,10 @@ async def handle_admin_chat(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     else:
         await status_msg.edit_text("🤔 Entendiendo tu solicitud... Por favor espera.")
     
-    res = await ai_service.generate_event_promo(text, INTENT_DETECTOR_PROMPT)
+    res = await ai_service.generate_event_promo(
+        text,
+        build_intent_detector_prompt(config),
+    )
     if not res:
         await status_msg.edit_text("❌ No pude entender tu solicitud. Intenta con un comando /helpadmin.")
         return
@@ -2899,7 +2924,15 @@ async def handle_admin_chat(update: Update, context: ContextTypes.DEFAULT_TYPE, 
                 await update.message.reply_voice(voice=audio)
 
         if intent == "ADD_EVENT":
-            await add_event(update, context, admin_id, ai_service, forced_text=text, status_msg=status_msg)
+            await add_event(
+                update,
+                context,
+                admin_id,
+                ai_service,
+                forced_text=text,
+                status_msg=status_msg,
+                config=config,
+            )
         elif intent == "DELETE_EVENT":
             await delete_event(update, context, admin_id, config, status_msg=status_msg)
         elif intent == "EDIT_EVENT":

@@ -1,15 +1,15 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
-def get_main_menu_text():
+def get_main_menu_text(community_display_name="Bitcoin & Lightning GDL"):
     """Return the public menu explanation shown with the action buttons."""
     return (
         "Elige una opción:\n\n"
         "🔔 Suscripciones: elegir qué notificaciones recibir.\n"
         "🗓 Calendario del mes: consultar el calendario mensual.\n"
         "📅 Meetup: abrir la página de Meetup.\n"
-        "🗓 Eventos: consultar los eventos de Bitcoin & Lightning GDL.\n"
-        "🛠 Bitdevs: abrir la página de Bitcoin & Lightning GDL BitDevs.\n"
-        "🌐 Sitio oficial: abrir el sitio web de Bitcoin & Lightning GDL."
+        f"🗓 Eventos: consultar los eventos de {community_display_name}.\n"
+        f"🛠 Bitdevs: abrir la página de {community_display_name} BitDevs.\n"
+        f"🌐 Sitio oficial: abrir el sitio web de {community_display_name}."
     )
 
 def get_main_keyboard(show_coffee=False):

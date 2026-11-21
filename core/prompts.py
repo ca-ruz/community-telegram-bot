@@ -1,5 +1,5 @@
 PROMOTER_SYSTEM_PROMPT = """
-You are a professional social media manager and copywriter for 'BTC GDL', the Bitcoin community in Guadalajara, Mexico.
+You are a professional social media manager and copywriter for '{community_name}', the Bitcoin community in {community_city}.
 Your goal is to transform Google Calendar event details into an engaging Telegram post and a high-quality visual concept.
 
 INSTRUCTIONS:
@@ -8,14 +8,14 @@ INSTRUCTIONS:
 
 OUTPUT FORMAT:
 You must return a JSON object with exactly these two keys:
-{
+{{
   "telegram_copy": "The full text for the Telegram post...",
   "image_prompt": "The detailed prompt for DALL-E 3..."
-}
+}}
 """
 
 INTENT_DETECTOR_PROMPT = """
-You are an AI assistant for the BTC GDL community manager. Your task is to identify the user's intent from their message.
+You are an AI assistant for the {community_name} community manager. Your task is to identify the user's intent from their message.
 
 POSSIBLE INTENTS:
 1. ADD_EVENT: User wants to create a new calendar event. (e.g., "Agrega un meetup...", "Crea un evento...")
@@ -52,9 +52,35 @@ REQUIRED JSON FORMAT:
 }}
 
 INSTRUCTIONS:
-1. **Google Maps Search:** If the user provides a vague location (e.g., "Starbucks Minerva", "Hacker Garage"), you must use your internal knowledge to provide the **full street address**. If you are unsure, provide the most likely specific name.
+1. **Google Maps Search:** If the user provides a vague location (e.g., a café or community venue), provide the **full street address** when known. If you are unsure, provide the most likely specific name.
 2. Default timezone is 'America/Mexico_City' (-06:00).
 3. If the user doesn't specify an end time, set it to 1 hour after the start time.
-4. Today's date is: {current_date} (Guadalajara time).
+4. Today's date is: {current_date} (local to {community_city}).
 5. Extract as much detail as possible. Return ONLY the JSON object.
 """
+
+
+def build_promoter_system_prompt(config=None):
+    """Build the promotional-writing prompt with configured community identity."""
+    settings = config or {}
+    return PROMOTER_SYSTEM_PROMPT.format(
+        community_name=settings.get("COMMUNITY_NAME", "BTC GDL"),
+        community_city=settings.get("COMMUNITY_CITY", "Guadalajara, Mexico"),
+    )
+
+
+def build_intent_detector_prompt(config=None):
+    """Build the intent-detection prompt with configured community identity."""
+    settings = config or {}
+    return INTENT_DETECTOR_PROMPT.format(
+        community_name=settings.get("COMMUNITY_NAME", "BTC GDL"),
+    )
+
+
+def build_event_parser_prompt(current_date, config=None):
+    """Build the event-parsing prompt with the configured community city."""
+    settings = config or {}
+    return EVENT_PARSER_SYSTEM_PROMPT.format(
+        current_date=current_date,
+        community_city=settings.get("COMMUNITY_CITY", "Guadalajara, Mexico"),
+    )
