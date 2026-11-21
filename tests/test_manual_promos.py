@@ -190,6 +190,32 @@ def test_manual_promo_caption_does_not_duplicate_existing_details():
     assert caption.count("📍 Community Space") == 1
 
 
+def test_manual_promo_caption_orders_structured_and_embedded_locations():
+    """Date and time precede the configured venue and address details."""
+    promo = {
+        "event_start": "2026-11-21T11:00:00-06:00",
+        "location": "Café de Carmen",
+        "text": (
+            "☕️ Mañana hay Coffee + Bitcoin!⚡\n\n"
+            "Café, Bitcoin, buena conversación y plebs 🧡\n\n"
+            "📍 A. 16 de Septiembre 230"
+        ),
+    }
+
+    caption = manual_promos.format_manual_promo_caption(
+        promo,
+        now=datetime(2026, 11, 20, 18, 0, tzinfo=manual_promos.MANUAL_PROMO_TIMEZONE),
+    )
+
+    body_index = caption.index("Café, Bitcoin, buena conversación")
+    date_index = caption.index("📅 Sábado 21 de noviembre")
+    time_index = caption.index("🕕 11 AM")
+    venue_index = caption.index("📍 Café de Carmen")
+    address_index = caption.index("📍 A. 16 de Septiembre 230")
+    assert body_index < date_index < time_index < venue_index < address_index
+    assert promo["text"].endswith("📍 A. 16 de Septiembre 230")
+
+
 def test_same_day_promo_caption_uses_today_wording_without_changing_the_promo():
     """Event-day captions say today without changing the stored promo text."""
     promo = {
