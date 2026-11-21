@@ -295,3 +295,51 @@ def test_check_calendar_stops_after_calendar_fetch_failure(tmp_path):
         asyncio.run(check_calendar(context, config, state))
 
     assert bot.messages == []
+
+
+def test_meetup_lookahead_matches_reconciliation_without_early_reminders(tmp_path):
+    """Import and reconciliation share the configured horizon without notifying early."""
+    now = datetime(2026, 10, 23, 12, 0, tzinfo=timezone.utc)
+    state = make_state({101})
+    state["imported_events"] = {
+        "meetup_ics:missing-inside-window": {
+            "source": "meetup_ics",
+            "source_id": "missing-inside-window",
+            "summary": "Missing inside the horizon",
+            "start": {"dateTime": "2026-11-17T12:00:00+00:00"},
+            "status": "confirmed",
+        },
+        "meetup_ics:missing-outside-window": {
+            "source": "meetup_ics",
+            "source_id": "missing-outside-window",
+            "summary": "Missing outside the horizon",
+            "start": {"dateTime": "2026-12-02T12:00:00+00:00"},
+            "status": "confirmed",
+        },
+    }
+    config = make_config(tmp_path)
+    config.update(
+        {
+            "EVENT_SOURCE": "meetup_ics",
+            "MEETUP_ICS_URL": "https://example.com/events.ics",
+            "MEETUP_ICS_LOOKAHEAD_DAYS": 35,
+        }
+    )
+    bot = FakeBot()
+    event_twenty_days_away = make_event(
+        "event-twenty-days-away",
+        start="2026-11-12T12:00:00+00:00",
+    )
+    context = SimpleNamespace(bot=bot, bot_data={})
+
+    with patch(
+        "core.promoter.fetch_upcoming_events_for_source",
+        return_value=([event_twenty_days_away], now),
+    ) as fetch_events:
+        asyncio.run(check_calendar(context, config, state))
+
+    fetch_events.assert_called_once_with(config, days=35)
+    assert state["imported_events"]["meetup_ics:event-twenty-days-away"]["status"] == "confirmed"
+    assert state["imported_events"]["meetup_ics:missing-inside-window"]["status"] == "removed"
+    assert state["imported_events"]["meetup_ics:missing-outside-window"]["status"] == "confirmed"
+    assert bot.messages == []

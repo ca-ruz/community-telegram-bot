@@ -79,6 +79,26 @@ def test_fetch_meetup_ics_events_filters_and_sorts_future_events():
     assert request.full_url == "https://example.com/events.ics"
 
 
+def test_fetch_meetup_ics_events_includes_multiple_event_types_at_lookahead_boundary():
+    """Timed and all-day events are included only through the exact cutoff."""
+    now = datetime(2026, 10, 23, 12, 0, tzinfo=timezone.utc)
+    response = FakeResponse(fixture_content())
+
+    with patch("tools.local.meetup_ics.urlopen", return_value=response):
+        events = fetch_meetup_ics_events(
+            "https://example.com/events.ics",
+            now=now,
+            days=35,
+        )
+
+    event_ids = {event["id"] for event in events}
+    assert "event-all-day@meetup.com" in event_ids
+    assert "event-bitdevs@meetup.com" in event_ids
+    assert "event-coffee-november@meetup.com" in event_ids
+    assert "event-lookahead-inside@meetup.com" in event_ids
+    assert "event-lookahead-outside@meetup.com" not in event_ids
+
+
 def test_fetch_meetup_ics_events_reports_network_failures():
     """Network failures use the provider-specific fetch exception."""
     with patch(
@@ -101,6 +121,7 @@ def test_event_source_selection_uses_meetup_ics_when_explicitly_configured():
     config = {
         "EVENT_SOURCE": "meetup_ics",
         "MEETUP_ICS_URL": "https://example.com/events.ics",
+        "MEETUP_ICS_LOOKAHEAD_DAYS": 21,
     }
 
     with patch(
@@ -111,4 +132,8 @@ def test_event_source_selection_uses_meetup_ics_when_explicitly_configured():
 
     assert events == [event]
     assert now.tzinfo is timezone.utc
-    provider.assert_called_once()
+    provider.assert_called_once_with(
+        "https://example.com/events.ics",
+        days=21,
+        now=now,
+    )
