@@ -1,6 +1,8 @@
 import os
 import logging
 from functools import partial
+from urllib.parse import urlparse
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from dotenv import load_dotenv
 from telegram import BotCommand, BotCommandScopeChat
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
@@ -120,12 +122,75 @@ def parse_positive_env_int(name, default):
     return default
 
 
+def parse_env_string(name, default):
+    """Parse a non-empty string environment variable with a safe fallback."""
+    raw_value = os.getenv(name)
+    if raw_value is None or not raw_value.strip():
+        return default
+    return raw_value.strip()
+
+
+def parse_env_url(name, default):
+    """Parse an optional HTTP(S) URL, falling back when a non-empty value is invalid."""
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+    value = raw_value.strip()
+    if not value:
+        return ""
+
+    parsed_url = urlparse(value)
+    if parsed_url.scheme in {"http", "https"} and parsed_url.netloc:
+        return value
+
+    logger.warning("Invalid URL value for %s; using the configured default.", name)
+    return default
+
+
+def parse_env_timezone(name, default):
+    """Parse an IANA timezone name and fall back when it is unknown."""
+    timezone_name = parse_env_string(name, default)
+    try:
+        ZoneInfo(timezone_name)
+    except (ValueError, ZoneInfoNotFoundError):
+        logger.warning("Invalid timezone value for %s; using default %s.", name, default)
+        return default
+    return timezone_name
+
+
 # Configuration
 CONFIG = {
     'BOT_TOKEN': os.getenv("TELEGRAM_BOT_TOKEN"),
     'ADMIN_ID': int(os.getenv("TELEGRAM_ADMIN_ID", "0")),
     'PAYMENT_ADMIN_ID': parse_env_int('PAYMENT_ADMIN_ID', 0),
     'COMMUNITY_GROUP_URL': os.getenv('COMMUNITY_GROUP_URL', '').strip(),
+    'COMMUNITY_NAME': parse_env_string('COMMUNITY_NAME', 'BTC GDL'),
+    'COMMUNITY_CITY': parse_env_string('COMMUNITY_CITY', 'Guadalajara'),
+    'COMMUNITY_TIMEZONE': parse_env_timezone(
+        'COMMUNITY_TIMEZONE',
+        'America/Mexico_City',
+    ),
+    'COMMUNITY_WEBSITE_URL': parse_env_url(
+        'COMMUNITY_WEBSITE_URL',
+        'https://btcgdl.com/',
+    ),
+    'COMMUNITY_EVENTS_URL': parse_env_url(
+        'COMMUNITY_EVENTS_URL',
+        'https://btcgdl.com/eventos.html',
+    ),
+    'COMMUNITY_MEETUP_URL': parse_env_url(
+        'COMMUNITY_MEETUP_URL',
+        'https://www.meetup.com/guadalajara-bitcoin-and-lightning/',
+    ),
+    'COMMUNITY_BITDEVS_URL': parse_env_url(
+        'COMMUNITY_BITDEVS_URL',
+        'https://bitdevs.btcgdl.com/',
+    ),
+    'WELCOME_IMAGE_PATH': parse_env_string('WELCOME_IMAGE_PATH', 'btcgdl.png'),
+    'MEETUP_ICS_USER_AGENT': parse_env_string(
+        'MEETUP_ICS_USER_AGENT',
+        'community-telegram-bot/1.0',
+    ),
     'OPENAI_API_KEY': os.getenv("OPENAI_API_KEY"),
     'OPENAI_IMAGE_MODEL': os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-1-mini"),
     'OPENAI_IMAGE_QUALITY': os.getenv("OPENAI_IMAGE_QUALITY", "medium"),
