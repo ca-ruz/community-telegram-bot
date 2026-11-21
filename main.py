@@ -56,6 +56,7 @@ from core.membership_payments import (
     synchronize_multi_period_payment_state,
 )
 from tools.local.data_manager import load_json, load_reminder_rules
+from tools.local.meetup_ics import DEFAULT_LOOKAHEAD_DAYS
 from services.openai_service import OpenAIService
 
 # Load environment
@@ -110,6 +111,15 @@ def parse_env_int(name, default):
         return default
 
 
+def parse_positive_env_int(name, default):
+    """Parse a positive integer environment variable with a safe fallback."""
+    value = parse_env_int(name, default)
+    if value > 0:
+        return value
+    logger.warning("Invalid positive integer value for %s; using default %s.", name, default)
+    return default
+
+
 # Configuration
 CONFIG = {
     'BOT_TOKEN': os.getenv("TELEGRAM_BOT_TOKEN"),
@@ -122,6 +132,10 @@ CONFIG = {
     'OPENAI_IMAGE_SIZE': os.getenv("OPENAI_IMAGE_SIZE", "1024x1536"),
     'EVENT_SOURCE': os.getenv('EVENT_SOURCE', 'google_calendar').strip().lower(),
     'MEETUP_ICS_URL': os.getenv('MEETUP_ICS_URL', '').strip(),
+    'MEETUP_ICS_LOOKAHEAD_DAYS': parse_positive_env_int(
+        'MEETUP_ICS_LOOKAHEAD_DAYS',
+        DEFAULT_LOOKAHEAD_DAYS,
+    ),
     'CALENDAR_ID': os.getenv("GOOGLE_CALENDAR_ID"),
     'SERVICE_ACCOUNT_FILE': "google_calendar.json",
     'SCOPES': ["https://www.googleapis.com/auth/calendar"],

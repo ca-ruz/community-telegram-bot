@@ -58,12 +58,20 @@ and AI-assisted event promotions.
     *   `TELEGRAM_BOT_TOKEN`: Your bot API key.
     *   `TELEGRAM_ADMIN_ID`: Your Telegram numeric user ID.
     *   `GOOGLE_CALENDAR_ID`: Your Gmail or the ID of the shared calendar.
+    *   `EVENT_SOURCE`: Event provider (`google_calendar` by default, or `meetup_ics`).
+    *   `MEETUP_ICS_URL`: Meetup group's iCalendar feed URL when using `meetup_ics`.
+    *   `MEETUP_ICS_LOOKAHEAD_DAYS`: Days ahead to import and reconcile Meetup events (default `35`).
     *   `OPENAI_API_KEY`: Your OpenAI Platform API key.
     *   `OPENAI_IMAGE_MODEL`: Flyer image model (`gpt-image-1-mini`).
     *   `OPENAI_IMAGE_QUALITY`: Flyer quality (`medium`).
     *   `OPENAI_IMAGE_SIZE`: Flyer dimensions (`1024x1536`).
     *   `EVENT_SAME_DAY_REMINDER_HOUR`: Same-day reminder hour in `America/Mexico_City` (default `13`).
     *   `EVENT_MORNING_REMINDER_LEAD_HOURS`: Lead time for events before the same-day hour (default `2`).
+
+When `EVENT_SOURCE=meetup_ics`, the bot imports events up to the configured
+lookahead and uses that same window when reconciling previously imported events.
+Importing an event early does not send its reminder early; existing reminder
+timing rules still determine when notifications are due.
 
 ### Membership Payment Configuration
 
