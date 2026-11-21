@@ -370,10 +370,19 @@ async def check_calendar(context, config, state):
 
         # --- PHASE A: PROACTIVE ADMIN DETECTION ---
         promo_state = notified_promos.get(storage_key, {"notified_thresholds": [], "flyer_created": False})
+        has_assigned_meetup_flyer = False
+        if source == "meetup_ics":
+            imported_key = get_imported_event_key(source, event_id)
+            imported_event = state.get("imported_events", {}).get(imported_key, {})
+            has_assigned_meetup_flyer = (
+                isinstance(imported_event, dict)
+                and bool(imported_event.get("flyer_file_id"))
+            )
         
         if (
             storage_key not in pending_promo_keys
             and not promo_state["flyer_created"]
+            and not has_assigned_meetup_flyer
             and series_id not in processed_admin_series
         ):
             key = get_event_reminder_stage(
