@@ -775,8 +775,8 @@ async def manage_members(
     )
 
 
-def _member_invoice_target(member_id, state, config):
-    """Validate one current-period pilot target without changing payment state."""
+def _member_invoice_target(member_id, state, config, period=None):
+    """Validate one member-period pilot target without changing payment state."""
     members = state.get("members", {})
     policy = resolve_payment_delivery_policy(config, members)
     if policy.mode != "pilot" or not policy.allows_member(member_id):
@@ -798,16 +798,23 @@ def _member_invoice_target(member_id, state, config):
     ):
         return "❌ El miembro tiene desactivados los avisos de pagos.", None
 
-    period = current_billing_period()
+    period = period if period is not None else current_billing_period()
+    try:
+        normalized_period = datetime.strptime(period, "%Y-%m").strftime("%Y-%m")
+    except (TypeError, ValueError):
+        normalized_period = None
+    if normalized_period != period:
+        return "❌ El periodo debe tener formato AAAA-MM válido.", None
+
     payment_state = state.get("payment_state", {})
     period_state = payment_state.get("periods", {}).get(period)
     if not isinstance(period_state, dict):
-        return "❌ No hay estado de pagos para el periodo actual.", None
+        return "❌ No hay estado de pagos para el periodo seleccionado.", None
     member_record = period_state.get("members", {}).get(member_id)
     if not isinstance(member_record, dict):
-        return "❌ El miembro no está registrado en el periodo actual.", None
+        return "❌ El miembro no está registrado en el periodo seleccionado.", None
     if member_record.get("status") == "paid":
-        return "❌ El miembro ya está marcado como pagado para el periodo actual.", None
+        return "❌ El miembro ya está marcado como pagado para el periodo seleccionado.", None
     invoice_history = member_record.get("payment_invoices", {})
     if isinstance(invoice_history, dict) and any(
         isinstance(invoice, dict) and invoice.get("state") == "settled"
@@ -850,11 +857,14 @@ async def member_invoice_test(
         return
 
     args = update.message.text.split()[1:]
-    if len(args) != 1:
-        await update.message.reply_text("Uso: /memberinvoice <member-id>")
+    if len(args) not in {1, 2}:
+        await update.message.reply_text(
+            "Uso: /memberinvoice <member-id> [YYYY-MM]"
+        )
         return
     member_id = args[0].strip()
-    error, target = _member_invoice_target(member_id, state, config)
+    period = args[1].strip() if len(args) == 2 else None
+    error, target = _member_invoice_target(member_id, state, config, period)
     if error:
         await update.message.reply_text(error)
         return
@@ -893,11 +903,15 @@ async def member_invoice_test(
         [
             InlineKeyboardButton(
                 "✅ Crear y enviar factura",
-                callback_data=f"member_invoice_confirm:{member_id}",
+                callback_data=(
+                    f"member_invoice_confirm:{member_id}:{target['period']}"
+                ),
             ),
             InlineKeyboardButton(
                 "Cancelar",
-                callback_data=f"member_invoice_cancel:{member_id}",
+                callback_data=(
+                    f"member_invoice_cancel:{member_id}:{target['period']}"
+                ),
             ),
         ]
     ])
@@ -923,9 +937,26 @@ async def handle_member_invoice_confirmation(
         await query.answer("Usa este comando en el chat privado.", show_alert=True)
         return
 
-    action, member_id = query.data.split(":", 1)
+    callback_parts = query.data.split(":", 2)
+    if len(callback_parts) not in {2, 3}:
+        await query.answer(
+            "La confirmación expiró. Inicia el comando nuevamente.",
+            show_alert=True,
+        )
+        return
     quote = context.user_data.get("member_invoice_quote", {})
-    if quote.get("member_id") != member_id:
+    if len(callback_parts) == 2:
+        action, member_id = callback_parts
+        period = quote.get("period")
+        if period != current_billing_period():
+            await query.answer(
+                "La confirmación expiró. Inicia el comando nuevamente.",
+                show_alert=True,
+            )
+            return
+    else:
+        action, member_id, period = callback_parts
+    if quote.get("member_id") != member_id or quote.get("period") != period:
         await query.answer(
             "La confirmación expiró. Inicia el comando nuevamente.",
             show_alert=True,
@@ -942,7 +973,7 @@ async def handle_member_invoice_confirmation(
         context.user_data.pop("member_invoice_quote", None)
         await query.answer("La cotización expiró. Vuelve a iniciar el comando.", show_alert=True)
         return
-    error, target = _member_invoice_target(member_id, state, config)
+    error, target = _member_invoice_target(member_id, state, config, period)
     if error or target["period"] != quote.get("period"):
         context.user_data.pop("member_invoice_quote", None)
         await query.answer(

@@ -17,7 +17,9 @@ from core.membership_payments import (
     check_payment_invoice_status,
     check_payment_reminders,
     current_billing_period,
+    format_payment_period,
     load_multi_period_payment_state,
+    previous_billing_period,
 )
 from core.nwc_client import NwcInvoice, NwcInvoiceStatus
 
@@ -87,8 +89,8 @@ def fake_wallet(monkeypatch):
     return wallet
 
 
-def _state():
-    """Build a current-period roster with one pilot target and one bystander."""
+def _state(periods=None):
+    """Build a roster with payment records for the requested periods."""
     members = {
         "member-001": build_member("Ada", 101, "coworking"),
         "member-002": build_member("Lin", 202, "private_office", 1.5),
@@ -104,7 +106,7 @@ def _state():
             "202": {"payments": True},
         },
         "payment_state": build_multi_period_payment_state(
-            members, [current_billing_period()]
+            members, periods or [current_billing_period()]
         ),
     }
 
@@ -137,11 +139,20 @@ def _command_update(text, *, user_id=42, chat_type="private"):
     )
 
 
-def _confirmation_update(member_id="member-001", *, user_id=42, chat_type="private"):
+def _confirmation_update(
+    member_id="member-001",
+    *,
+    period=None,
+    user_id=42,
+    chat_type="private",
+):
     """Build the callback update for invoice confirmation or cancellation."""
+    callback_data = f"member_invoice_confirm:{member_id}"
+    if period is not None:
+        callback_data = f"{callback_data}:{period}"
     return SimpleNamespace(
         callback_query=SimpleNamespace(
-            data=f"member_invoice_confirm:{member_id}",
+            data=callback_data,
             from_user=SimpleNamespace(id=user_id),
             message=SimpleNamespace(chat=SimpleNamespace(type=chat_type)),
             answer=AsyncMock(),
@@ -158,11 +169,10 @@ def _context():
     )
 
 
-def _member_record(state, member_id="member-001"):
-    """Return a member's record in the current billing period."""
-    return state["payment_state"]["periods"][current_billing_period()][
-        "members"
-    ][member_id]
+def _member_record(state, member_id="member-001", period=None):
+    """Return a member's record for the requested billing period."""
+    selected_period = period or current_billing_period()
+    return state["payment_state"]["periods"][selected_period]["members"][member_id]
 
 
 def test_command_previews_exact_price_then_delivers_only_to_selected_member(
@@ -204,6 +214,191 @@ def test_command_previews_exact_price_then_delivers_only_to_selected_member(
     ]["active_invoice_payment_hash"] == fake_wallet.created[0][
         "invoice"
     ].payment_hash
+
+
+@pytest.mark.parametrize("period", ["2026-13", "2026-1", "2026-11-01", "2026-00"])
+def test_command_rejects_invalid_selected_period(fake_wallet, tmp_path, period):
+    """The optional billing period must use a real YYYY-MM value."""
+    state = _state()
+    update = _command_update(f"/memberinvoice member-001 {period}")
+
+    asyncio.run(
+        admin.member_invoice_test(
+            update, _context(), 42, 77, state, _config(tmp_path)
+        )
+    )
+
+    assert "formato AAAA-MM válido" in update.message.reply_text.await_args.args[0]
+    assert fake_wallet.created == []
+
+
+def test_command_rejects_period_missing_from_payment_state(fake_wallet, tmp_path):
+    """A valid period without a member-payment record cannot receive an invoice."""
+    period = previous_billing_period(previous_billing_period())
+    update = _command_update(f"/memberinvoice member-001 {period}")
+
+    asyncio.run(
+        admin.member_invoice_test(
+            update, _context(), 42, 77, _state(), _config(tmp_path)
+        )
+    )
+
+    assert "periodo seleccionado" in update.message.reply_text.await_args.args[0]
+    assert fake_wallet.created == []
+
+
+def test_command_quotes_and_confirms_the_selected_previous_period(
+    fake_wallet, tmp_path
+):
+    """The selected period remains attached to the quote and invoice callback."""
+    current_period = current_billing_period()
+    previous_period = previous_billing_period(current_period)
+    state = _state([previous_period, current_period])
+    config = _config(tmp_path)
+    context = _context()
+    update = _command_update(f"/memberinvoice member-001 {previous_period}")
+
+    asyncio.run(admin.member_invoice_test(update, context, 42, 77, state, config))
+
+    preview = update.message.reply_text.await_args.args[0]
+    assert f"Periodo: {previous_period}" in preview
+    reply_markup = update.message.reply_text.await_args.kwargs["reply_markup"]
+    assert reply_markup.inline_keyboard[0][0].callback_data.endswith(previous_period)
+
+    asyncio.run(
+        admin.handle_member_invoice_confirmation(
+            _confirmation_update(period=previous_period),
+            context,
+            42,
+            77,
+            state,
+            config,
+        )
+    )
+
+    invoice = fake_wallet.created[0]
+    assert invoice["description"] == (
+        f"Ada - membresía {format_payment_period(previous_period)}"
+    )
+    assert _member_record(state, period=previous_period)[
+        "active_invoice_payment_hash"
+    ] == invoice["invoice"].payment_hash
+    assert "payment_invoices" not in _member_record(state, period=current_period)
+
+
+def test_stale_period_confirmation_cannot_issue_the_newer_quote(
+    fake_wallet, tmp_path
+):
+    """An older period button cannot confirm a later quote for another period."""
+    current_period = current_billing_period()
+    previous_period = previous_billing_period(current_period)
+    state = _state([previous_period, current_period])
+    config = _config(tmp_path)
+    context = _context()
+
+    asyncio.run(
+        admin.member_invoice_test(
+            _command_update(f"/memberinvoice member-001 {previous_period}"),
+            context,
+            42,
+            77,
+            state,
+            config,
+        )
+    )
+    asyncio.run(
+        admin.member_invoice_test(
+            _command_update(f"/memberinvoice member-001 {current_period}"),
+            context,
+            42,
+            77,
+            state,
+            config,
+        )
+    )
+    stale_confirmation = _confirmation_update(period=previous_period)
+
+    asyncio.run(
+        admin.handle_member_invoice_confirmation(
+            stale_confirmation, context, 42, 77, state, config
+        )
+    )
+
+    assert fake_wallet.created == []
+    assert stale_confirmation.callback_query.answer.await_args.kwargs[
+        "show_alert"
+    ] is True
+
+
+def test_distinct_period_invoices_settle_only_the_matching_member_period(
+    fake_wallet, tmp_path
+):
+    """Separate period invoices coexist and settlement changes only its period."""
+    current_period = current_billing_period()
+    previous_period = previous_billing_period(current_period)
+    state = _state([previous_period, current_period])
+    config = _config(tmp_path)
+    context = _context()
+
+    for period in (previous_period, current_period):
+        asyncio.run(
+            admin.member_invoice_test(
+                _command_update(f"/memberinvoice member-001 {period}"),
+                context,
+                42,
+                77,
+                state,
+                config,
+            )
+        )
+        asyncio.run(
+            admin.handle_member_invoice_confirmation(
+                _confirmation_update(period=period),
+                context,
+                42,
+                77,
+                state,
+                config,
+            )
+        )
+
+    assert len(fake_wallet.created) == 2
+    previous_invoice = fake_wallet.created[0]
+    current_invoice = fake_wallet.created[1]
+    assert previous_invoice["invoice"].payment_hash != current_invoice[
+        "invoice"
+    ].payment_hash
+
+    duplicate = _command_update(f"/memberinvoice member-001 {previous_period}")
+    asyncio.run(
+        admin.member_invoice_test(duplicate, context, 42, 77, state, config)
+    )
+    assert "factura pendiente" in duplicate.message.reply_text.await_args.args[0]
+    assert len(fake_wallet.created) == 2
+
+    settled_at = int(datetime.now(timezone.utc).timestamp())
+    fake_wallet.statuses = [
+        NwcInvoiceStatus(
+            payment_hash=previous_invoice["invoice"].payment_hash,
+            state="settled",
+            amount_msat=previous_invoice["invoice"].amount_msat,
+            settled_at=settled_at,
+            preimage=previous_invoice["preimage"],
+        ),
+        NwcInvoiceStatus(
+            payment_hash=current_invoice["invoice"].payment_hash,
+            state="pending",
+            amount_msat=current_invoice["invoice"].amount_msat,
+            settled_at=None,
+            preimage=current_invoice["preimage"],
+        ),
+    ]
+
+    result = asyncio.run(check_payment_invoice_status(config, state))
+
+    assert result == {"checked": 2, "settled": 1, "failed": 0}
+    assert _member_record(state, period=previous_period)["status"] == "paid"
+    assert _member_record(state, period=current_period)["status"] == "unpaid"
 
 
 def test_command_delivery_is_deduplicated_against_same_day_scheduler(
