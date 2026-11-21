@@ -16,7 +16,7 @@ and AI-assisted event promotions.
 *   **Notification Preferences:** Users can choose event, coffee-host, and membership notification categories from `/suscripciones`.
 *   **Smart Formatting:** Professional HTML-formatted messages with 12h AM/PM time and clean date display.
 *   **Link Extraction:** Automatically finds registration links in the Google Calendar event description.
-*   **Timezone Aware:** Handles scheduled and displayed times in the currently supported `America/Mexico_City` timezone.
+*   **Timezone Aware:** Handles scheduled and displayed times in the configured IANA timezone (`COMMUNITY_TIMEZONE`, default `America/Mexico_City`).
 *   **Multi-Channel Broadcast:** One-click publishing to all community groups and individual subscribers.
 *   **Deduplication:** Ensures users don't receive redundant notifications for the same event and filters recurring series to show only the closest instance.
 *   **Private User Interaction:** Interactive user commands and menus are handled in private chats, while scheduled notifications continue reaching configured groups.
@@ -57,16 +57,25 @@ and AI-assisted event promotions.
     Edit `.env` with your values:
     *   `TELEGRAM_BOT_TOKEN`: Your bot API key.
     *   `TELEGRAM_ADMIN_ID`: Your Telegram numeric user ID.
+    *   `COMMUNITY_NAME`, `COMMUNITY_DISPLAY_NAME`, and `COMMUNITY_CITY`: Names used in generated content and menus.
+    *   `COMMUNITY_TIMEZONE`: IANA timezone for community schedules and local dates (default `America/Mexico_City`).
+    *   `COMMUNITY_WEBSITE_URL`, `COMMUNITY_EVENTS_URL`, `COMMUNITY_MEETUP_URL`, and `COMMUNITY_BITDEVS_URL`: Community links.
+    *   `WELCOME_IMAGE_PATH`: Path to the image sent to new users.
     *   `GOOGLE_CALENDAR_ID`: Your Gmail or the ID of the shared calendar.
     *   `EVENT_SOURCE`: Event provider (`google_calendar` by default, or `meetup_ics`).
     *   `MEETUP_ICS_URL`: Meetup group's iCalendar feed URL when using `meetup_ics`.
     *   `MEETUP_ICS_LOOKAHEAD_DAYS`: Days ahead to import and reconcile Meetup events (default `35`).
+    *   `MEETUP_ICS_USER_AGENT`: Descriptive HTTP User-Agent sent when fetching the Meetup feed.
     *   `OPENAI_API_KEY`: Your OpenAI Platform API key.
     *   `OPENAI_IMAGE_MODEL`: Flyer image model (`gpt-image-1-mini`).
     *   `OPENAI_IMAGE_QUALITY`: Flyer quality (`medium`).
     *   `OPENAI_IMAGE_SIZE`: Flyer dimensions (`1024x1536`).
-    *   `EVENT_SAME_DAY_REMINDER_HOUR`: Same-day reminder hour in `America/Mexico_City` (default `13`).
+    *   `EVENT_SAME_DAY_REMINDER_HOUR`: Same-day reminder hour in `COMMUNITY_TIMEZONE` (default `13`).
     *   `EVENT_MORNING_REMINDER_LEAD_HOURS`: Lead time for events before the same-day hour (default `2`).
+
+The repository retains BTC GDL-compatible identity defaults when these
+settings are omitted. Forks should set the community identity, timezone, URLs,
+welcome image, and Meetup User-Agent in `.env`.
 
 When `EVENT_SOURCE=meetup_ics`, the bot imports events up to the configured
 lookahead and uses that same window when reconciling previously imported events.
@@ -90,7 +99,7 @@ The membership payment workflow uses these additional variables:
 *   `PAYMENT_INVOICE_EXPIRY_SECONDS`: Lifetime of generated invoices (default `259200`, three days).
 *   `PAYMENT_TEST_INVOICE_AMOUNT_SATS`: Low-value primary-administrator test amount, capped at `100` sats.
 *   `PAYMENT_TEST_STATE_FILE`: Separate runtime file for test invoices (default `data/payment_test_state.json`).
-*   `PAYMENT_REMINDER_HOUR`: Local reminder hour in `America/Mexico_City` (default `9`).
+*   `PAYMENT_REMINDER_HOUR`: Local reminder hour in `COMMUNITY_TIMEZONE` (default `9`).
 *   `PAYMENT_ADVANCE_REMINDER_DAYS`: Days before a billing period for the advance reminder (default `3`).
 *   `ENABLE_PAYMENT_REMINDERS`: Set to `false` to disable scheduled payment reminders while retaining the roster and payment state.
 
