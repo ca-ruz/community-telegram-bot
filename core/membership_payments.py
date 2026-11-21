@@ -28,6 +28,7 @@ from core.payment_test_state import (
     update_payment_test_invoice,
 )
 from tools.local.data_manager import load_json, save_json
+from core.community_timezone import DEFAULT_COMMUNITY_TIMEZONE, get_community_timezone
 
 
 PRIMARY_ADMIN_ROLE = "primary_admin"
@@ -41,7 +42,7 @@ PAYMENT_INVOICE_STATES = frozenset({
     "unmatched",
 })
 logger = logging.getLogger(__name__)
-PAYMENT_TIMEZONE = ZoneInfo("America/Mexico_City")
+PAYMENT_TIMEZONE = ZoneInfo(DEFAULT_COMMUNITY_TIMEZONE)
 PAYMENT_MONTHS = (
     "enero", "febrero", "marzo", "abril", "mayo", "junio",
     "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
@@ -1422,10 +1423,11 @@ def next_month_first(current_date):
 
 def get_payment_reminder_stage(now=None, reminder_hour=9):
     """Return the upcoming billing period and due reminder stage, if any."""
-    current_time = now or datetime.now(PAYMENT_TIMEZONE)
+    community_timezone = get_community_timezone()
+    current_time = now or datetime.now(community_timezone)
     if current_time.tzinfo is None:
-        current_time = current_time.replace(tzinfo=PAYMENT_TIMEZONE)
-    local_time = current_time.astimezone(PAYMENT_TIMEZONE)
+        current_time = current_time.replace(tzinfo=community_timezone)
+    local_time = current_time.astimezone(community_timezone)
     first_of_next_month = next_month_first(local_time.date())
     if local_time.hour < reminder_hour:
         return None
@@ -1451,10 +1453,11 @@ def get_payment_reminder_schedule(now=None, reminder_hour=9):
     daily private reminders. Public reminders resume on fixed dates after the
     five-day grace period, with increasing weekly frequency through the month.
     """
-    current_time = now or datetime.now(PAYMENT_TIMEZONE)
+    community_timezone = get_community_timezone()
+    current_time = now or datetime.now(community_timezone)
     if current_time.tzinfo is None:
-        current_time = current_time.replace(tzinfo=PAYMENT_TIMEZONE)
-    local_time = current_time.astimezone(PAYMENT_TIMEZONE)
+        current_time = current_time.replace(tzinfo=community_timezone)
+    local_time = current_time.astimezone(community_timezone)
     if local_time.hour < reminder_hour:
         return None
 
@@ -1487,10 +1490,11 @@ def get_overlapping_payment_reminder_schedule(
     rollover reminder so its unpaid balance can be handled alongside the new
     period. Delivery and duplicate handling are applied by the scheduler.
     """
-    current_time = now or datetime.now(PAYMENT_TIMEZONE)
+    community_timezone = get_community_timezone()
+    current_time = now or datetime.now(community_timezone)
     if current_time.tzinfo is None:
-        current_time = current_time.replace(tzinfo=PAYMENT_TIMEZONE)
-    local_time = current_time.astimezone(PAYMENT_TIMEZONE)
+        current_time = current_time.replace(tzinfo=community_timezone)
+    local_time = current_time.astimezone(community_timezone)
     if local_time.hour < reminder_hour:
         return []
 
@@ -1593,7 +1597,7 @@ def _format_invoice_expiry(expires_at):
         expiry_time = datetime.fromtimestamp(
             normalized_expiry,
             timezone.utc,
-        ).astimezone(PAYMENT_TIMEZONE)
+        ).astimezone(get_community_timezone())
     except (OverflowError, OSError, ValueError):
         return "no disponible"
     return expiry_time.strftime("%d/%m/%Y %H:%M")
@@ -2020,7 +2024,7 @@ async def _check_multi_period_payment_reminders(context, config, state, now, pol
                 state_changed = True
 
     personal_deliveries = {}
-    local_date = now.astimezone(PAYMENT_TIMEZONE).date()
+    local_date = now.astimezone(get_community_timezone()).date()
     members = state.get("members", {})
     if policy.mode == "pilot":
         members = {
@@ -2188,9 +2192,10 @@ async def check_payment_reminders(context, config, state, now=None):
     if policy.mode == "off":
         return
 
-    current_time = now or datetime.now(PAYMENT_TIMEZONE)
+    community_timezone = get_community_timezone()
+    current_time = now or datetime.now(community_timezone)
     if current_time.tzinfo is None:
-        current_time = current_time.replace(tzinfo=PAYMENT_TIMEZONE)
+        current_time = current_time.replace(tzinfo=community_timezone)
     payment_state = state.setdefault("payment_state", {})
     multi_period_state = isinstance(payment_state.get("periods"), dict)
     if multi_period_state:
@@ -2269,7 +2274,7 @@ async def check_payment_reminders(context, config, state, now=None):
         personal_key_stage = personal_stage
         if personal_stage == "daily":
             personal_key_stage = (
-                f"daily:{current_time.astimezone(PAYMENT_TIMEZONE).date()}"
+                f"daily:{current_time.astimezone(community_timezone).date()}"
             )
         members = state.get("members", {})
         if policy.mode == "pilot":

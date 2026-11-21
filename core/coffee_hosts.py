@@ -8,10 +8,11 @@ from zoneinfo import ZoneInfo
 
 from tools.local.data_manager import load_json, save_json
 from core.notification_preferences import is_notification_enabled
+from core.community_timezone import DEFAULT_COMMUNITY_TIMEZONE, get_community_timezone
 
 logger = logging.getLogger(__name__)
 
-COFFEE_TIMEZONE = ZoneInfo("America/Mexico_City")
+COFFEE_TIMEZONE = ZoneInfo(DEFAULT_COMMUNITY_TIMEZONE)
 VALID_REMINDER_RULES = ("7d", "1d")
 SPANISH_WEEKDAYS = (
     "lunes",
@@ -281,7 +282,7 @@ def _coffee_event_datetime(saturday_text, start_time_text):
     if saturday.weekday() != 5:
         return None
 
-    return datetime.combine(saturday, start_time, tzinfo=COFFEE_TIMEZONE)
+    return datetime.combine(saturday, start_time, tzinfo=get_community_timezone())
 
 
 def _coffee_reminder_stage(event_datetime, now, reminder_rules):
@@ -410,7 +411,7 @@ async def send_manual_coffee_host_reminder(context, config, state, saturday_text
 
 async def check_coffee_host_reminders(context, config, state):
     """Send due private reminders to assigned coffee hosts and persist successful deliveries."""
-    now = datetime.now(COFFEE_TIMEZONE)
+    now = datetime.now(get_community_timezone())
     schedule = state.setdefault("coffee_host_schedule", {})
     changed = False
 

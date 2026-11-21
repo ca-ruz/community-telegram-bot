@@ -4,8 +4,9 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from tools.local.data_manager import load_json, save_json
+from core.community_timezone import DEFAULT_COMMUNITY_TIMEZONE, get_community_timezone
 
-CALENDAR_TIMEZONE = ZoneInfo("America/Mexico_City")
+CALENDAR_TIMEZONE = ZoneInfo(DEFAULT_COMMUNITY_TIMEZONE)
 SPANISH_MONTHS = (
     "enero",
     "febrero",
@@ -24,10 +25,11 @@ SPANISH_MONTHS = (
 
 def current_calendar_month(now=None):
     """Return the current Guadalajara calendar month as ``YYYY-MM``."""
-    current_time = now or datetime.now(CALENDAR_TIMEZONE)
+    community_timezone = get_community_timezone()
+    current_time = now or datetime.now(community_timezone)
     if current_time.tzinfo is None:
-        current_time = current_time.replace(tzinfo=CALENDAR_TIMEZONE)
-    return current_time.astimezone(CALENDAR_TIMEZONE).strftime("%Y-%m")
+        current_time = current_time.replace(tzinfo=community_timezone)
+    return current_time.astimezone(community_timezone).strftime("%Y-%m")
 
 
 def parse_calendar_month(raw_month, now=None):
@@ -47,7 +49,7 @@ def build_monthly_calendar(month, file_id, caption="", uploaded_at=None):
         "month": month,
         "file_id": file_id,
         "caption": caption,
-        "uploaded_at": uploaded_at or datetime.now(CALENDAR_TIMEZONE).isoformat(),
+        "uploaded_at": uploaded_at or datetime.now(get_community_timezone()).isoformat(),
     }
 
 

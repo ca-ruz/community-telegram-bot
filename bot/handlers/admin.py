@@ -7,10 +7,13 @@ from telegram.ext import ContextTypes
 from telegram.constants import ParseMode
 from tools.local.calendar_api import get_calendar_service_with_creds, fetch_upcoming_events, create_calendar_event
 from tools.local.data_manager import load_json, save_json
-from core.prompts import PROMOTER_SYSTEM_PROMPT, EVENT_PARSER_SYSTEM_PROMPT, INTENT_DETECTOR_PROMPT
+from core.prompts import (
+    build_event_parser_prompt,
+    build_intent_detector_prompt,
+    build_promoter_system_prompt,
+)
 from datetime import date, datetime, timezone
 from core.coffee_hosts import (
-    COFFEE_TIMEZONE,
     build_coffee_assignment,
     build_coffee_host,
     find_coffee_host_ids,
@@ -22,8 +25,8 @@ from core.coffee_hosts import (
     send_manual_coffee_host_reminder,
 )
 from core.admin_status import build_admin_status_snapshot
+from core.community_timezone import get_community_timezone
 from core.manual_promos import (
-    MANUAL_PROMO_TIMEZONE,
     build_manual_promo,
     deliver_manual_promo,
     deliver_manual_promo_test,
@@ -824,7 +827,7 @@ def _member_invoice_target(member_id, state, config, period=None):
     if get_active_payment_invoice(payment_state, period, member_id) is not None:
         return "❌ Ya existe una factura pendiente o sin resolver para este periodo.", None
 
-    today = datetime.now(COFFEE_TIMEZONE).date()
+    today = datetime.now(get_community_timezone()).date()
     delivery_key = invoice_delivery_key(period, today, member_id)
     if delivery_key in period_state.get("personal_reminders_sent", {}):
         return "❌ Ya se envió una factura a este miembro hoy.", None
@@ -1505,7 +1508,7 @@ async def manual_promo(update: Update, context: ContextTypes.DEFAULT_TYPE, admin
         return
 
     if event_start.tzinfo is None:
-        event_start = event_start.replace(tzinfo=COFFEE_TIMEZONE)
+        event_start = event_start.replace(tzinfo=get_community_timezone())
 
     if event_start <= datetime.now(event_start.tzinfo):
         await update.message.reply_text("❌ La fecha del evento debe estar en el futuro.")
@@ -1541,7 +1544,7 @@ def parse_linked_event_input(raw_text, display_order, event_group_id):
     except ValueError as exc:
         raise ValueError("El inicio debe tener formato AAAA-MM-DD HH:MM.") from exc
     if event_start.tzinfo is None:
-        event_start = event_start.replace(tzinfo=COFFEE_TIMEZONE)
+        event_start = event_start.replace(tzinfo=get_community_timezone())
     if event_start <= datetime.now(event_start.tzinfo):
         raise ValueError("La fecha del evento debe estar en el futuro.")
 
@@ -1776,7 +1779,7 @@ async def handle_manual_promo_send_now(
         await query.edit_message_caption("❌ El promo manual ya no existe.")
         return
 
-    now = datetime.now(MANUAL_PROMO_TIMEZONE)
+    now = datetime.now(get_community_timezone())
     promo["status"] = "active"
     set_first_notification_schedule(promo, now)
     stage = get_manual_promo_stage(
@@ -1893,13 +1896,13 @@ async def handle_manual_promo_schedule_input(
         return
 
     if scheduled_for.tzinfo is None:
-        scheduled_for = scheduled_for.replace(tzinfo=MANUAL_PROMO_TIMEZONE)
-    now = datetime.now(MANUAL_PROMO_TIMEZONE)
+        scheduled_for = scheduled_for.replace(tzinfo=get_community_timezone())
+    now = datetime.now(get_community_timezone())
     event_start = datetime.fromisoformat(
         str(promo["event_start"]).replace("Z", "+00:00")
     )
     if event_start.tzinfo is None:
-        event_start = event_start.replace(tzinfo=MANUAL_PROMO_TIMEZONE)
+        event_start = event_start.replace(tzinfo=get_community_timezone())
 
     if scheduled_for <= now:
         await update.message.reply_text("❌ El primer aviso debe estar en el futuro.")
@@ -2027,7 +2030,7 @@ async def coffee_host(update: Update, context: ContextTypes.DEFAULT_TYPE, admin_
     hosts = state.setdefault("coffee_hosts", {})
 
     if not raw_args:
-        today = datetime.now(COFFEE_TIMEZONE).date()
+        today = datetime.now(get_community_timezone()).date()
         await update.message.reply_text(
             format_coffee_host_schedule(schedule, hosts, today),
             parse_mode=ParseMode.HTML,
@@ -2276,8 +2279,9 @@ def format_status_overview(state, config):
     coworking_quiet_hours = config.get("COWORKING_QUIET_WINDOW_HOURS", 24)
     coworking_state = state.get("coworking", {})
     coworking_last_sent = coworking_state.get("last_sent_week", "Nunca")
+    community_name = escape(str(config.get("COMMUNITY_NAME", "BTC GDL")))
     msg = (
-        f"📊 <b>BTC GDL Bot Status</b>\n\n"
+        f"📊 <b>{community_name} Bot Status</b>\n\n"
         f"👤 <b>Known users:</b> {status_counts['known_users']}\n"
         f"👥 <b>Subscribers:</b> {status_counts['subscribers']}\n"
         f"📢 <b>Broadcast Groups:</b> {status_counts['broadcast_groups']}\n"
@@ -2630,7 +2634,15 @@ async def handle_edit_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 # --- ADD LOGIC ---
 
-async def add_event(update: Update, context: ContextTypes.DEFAULT_TYPE, admin_id, ai_service, forced_text=None, status_msg=None):
+async def add_event(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    admin_id,
+    ai_service,
+    forced_text=None,
+    status_msg=None,
+    config=None,
+):
     """
     Admin-only command to create a new calendar event using AI parsing.
     """
@@ -2645,8 +2657,8 @@ async def add_event(update: Update, context: ContextTypes.DEFAULT_TYPE, admin_id
     else:
         status_msg = await update.message.reply_text("⏳ Procesando detalles y buscando dirección... Por favor espera.")
     
-    current_date = datetime.now().strftime("%Y-%m-%d")
-    prompt = EVENT_PARSER_SYSTEM_PROMPT.format(current_date=current_date)
+    current_date = datetime.now(get_community_timezone()).strftime("%Y-%m-%d")
+    prompt = build_event_parser_prompt(current_date, config)
     res = await ai_service.generate_event_promo(desc, prompt)
     if not res: 
         await status_msg.edit_text("❌ Falló la generación del evento.")
@@ -2711,13 +2723,22 @@ async def generate_promo_for_event(event, context, admin_id, ai_service, state, 
     save_json(config['PROMOTED_FILE'], notified)
 
     logger.info(f"{'Refining' if instructions else 'Generating'} AI promo for: {event_summary}")
+    promoter_prompt = build_promoter_system_prompt(config)
 
     if instructions:
         await context.bot.send_message(admin_id, "🔄 Refinando promoción... Por favor espera. (Costo de créditos aplicado).")
         current = state['pending_promos'].get(str(admin_id), {})
-        raw = await ai_service.refine_event_promo(json.dumps(event_info), json.dumps(current), instructions, PROMOTER_SYSTEM_PROMPT)
+        raw = await ai_service.refine_event_promo(
+            json.dumps(event_info),
+            json.dumps(current),
+            instructions,
+            promoter_prompt,
+        )
     else:
-        raw = await ai_service.generate_event_promo(json.dumps(event_info), PROMOTER_SYSTEM_PROMPT)
+        raw = await ai_service.generate_event_promo(
+            json.dumps(event_info),
+            promoter_prompt,
+        )
 
     if not raw:
         await context.bot.send_message(admin_id, "❌ Falló la generación de OpenAI.")
@@ -2881,7 +2902,10 @@ async def handle_admin_chat(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     else:
         await status_msg.edit_text("🤔 Entendiendo tu solicitud... Por favor espera.")
     
-    res = await ai_service.generate_event_promo(text, INTENT_DETECTOR_PROMPT)
+    res = await ai_service.generate_event_promo(
+        text,
+        build_intent_detector_prompt(config),
+    )
     if not res:
         await status_msg.edit_text("❌ No pude entender tu solicitud. Intenta con un comando /helpadmin.")
         return
@@ -2899,7 +2923,15 @@ async def handle_admin_chat(update: Update, context: ContextTypes.DEFAULT_TYPE, 
                 await update.message.reply_voice(voice=audio)
 
         if intent == "ADD_EVENT":
-            await add_event(update, context, admin_id, ai_service, forced_text=text, status_msg=status_msg)
+            await add_event(
+                update,
+                context,
+                admin_id,
+                ai_service,
+                forced_text=text,
+                status_msg=status_msg,
+                config=config,
+            )
         elif intent == "DELETE_EVENT":
             await delete_event(update, context, admin_id, config, status_msg=status_msg)
         elif intent == "EDIT_EVENT":

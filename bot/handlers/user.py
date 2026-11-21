@@ -20,7 +20,6 @@ from core.notification_preferences import (
 )
 from core.monthly_calendar import format_calendar_title
 from core.coffee_hosts import (
-    COFFEE_TIMEZONE,
     can_view_coffee_schedule,
     format_private_coffee_schedule,
 )
@@ -32,6 +31,7 @@ from core.event_registrations import (
     unregister_user,
 )
 from core.chat_scope import is_private_chat
+from core.community_timezone import get_community_timezone
 from core.telegram_metadata import record_user_metadata, save_telegram_metadata
 from tools.local.data_manager import load_json, save_json
 
@@ -43,6 +43,29 @@ WELCOME_IMAGE_PATH = "btcgdl.png"
 SUBSCRIBERS_FILE = "data/subscribers.json"
 NOTIFICATION_PREFERENCES_FILE = "data/notification_preferences.json"
 WELCOMED_USERS_FILE = "data/welcomed_users.json"
+DEFAULT_COMMUNITY_LINKS = {
+    "meetup": "https://www.meetup.com/guadalajara-bitcoin-and-lightning/",
+    "eventos": "https://btcgdl.com/eventos.html",
+    "bitdevs": "https://bitdevs.btcgdl.com/",
+    "web": "https://btcgdl.com/",
+}
+
+
+def _community_display_name(config=None):
+    """Return the configured community display name or its legacy default."""
+    return (config or {}).get("COMMUNITY_DISPLAY_NAME", "Bitcoin & Lightning GDL")
+
+
+def _community_link(config, command):
+    """Return the configured public link for a menu command."""
+    settings = config or {}
+    setting_names = {
+        "meetup": "COMMUNITY_MEETUP_URL",
+        "eventos": "COMMUNITY_EVENTS_URL",
+        "bitdevs": "COMMUNITY_BITDEVS_URL",
+        "web": "COMMUNITY_WEBSITE_URL",
+    }
+    return settings.get(setting_names[command]) or DEFAULT_COMMUNITY_LINKS[command]
 
 
 def persist_user_metadata(user, metadata, file_path):
@@ -67,9 +90,11 @@ async def send_main_menu(
     include_welcome=False,
     admin_id=None,
     coffee_hosts=None,
+    config=None,
 ):
     """Send the shared public menu with an optional first-time welcome."""
-    menu_text = get_main_menu_text()
+    community_name = _community_display_name(config)
+    menu_text = get_main_menu_text(community_name)
     reply_markup = get_user_main_keyboard(
         update.effective_user.id,
         admin_id,
@@ -78,12 +103,13 @@ async def send_main_menu(
     response_text = menu_text
     if include_welcome:
         response_text = (
-            "¡Hola Bitcoiner! Bienvenido a Bitcoin & Lightning GDL.\n\n"
+            f"¡Hola Bitcoiner! Bienvenido a {community_name}.\n\n"
             + menu_text
         )
 
-    if include_welcome and os.path.exists(WELCOME_IMAGE_PATH):
-        with open(WELCOME_IMAGE_PATH, "rb") as photo:
+    welcome_image_path = (config or {}).get("WELCOME_IMAGE_PATH", WELCOME_IMAGE_PATH)
+    if include_welcome and os.path.exists(welcome_image_path):
+        with open(welcome_image_path, "rb") as photo:
             await context.bot.send_photo(
                 chat_id=update.effective_chat.id,
                 photo=photo,
@@ -103,6 +129,7 @@ async def start(
     coffee_hosts=None,
     telegram_metadata=None,
     telegram_metadata_file=None,
+    config=None,
 ):
     """
     Handles the /start command. Sends a welcome image with a caption.
@@ -122,6 +149,7 @@ async def start(
         include_welcome=is_first_welcome,
         admin_id=admin_id,
         coffee_hosts=coffee_hosts,
+        config=config,
     )
 
     if is_first_welcome:
@@ -133,6 +161,7 @@ async def menu(
     context: ContextTypes.DEFAULT_TYPE,
     admin_id=None,
     coffee_hosts=None,
+    config=None,
 ):
     """
     Handles the /menu command. Shows the main action buttons without the logo.
@@ -145,6 +174,7 @@ async def menu(
         context,
         admin_id=admin_id,
         coffee_hosts=coffee_hosts,
+        config=config,
     )
 
 
@@ -203,47 +233,39 @@ async def coffee_schedule(
             coffee_hosts,
             user_id,
             admin_id,
-            datetime.now(COFFEE_TIMEZONE).date(),
+            datetime.now(get_community_timezone()).date(),
         ),
         parse_mode="HTML",
         reply_markup=get_coffee_schedule_keyboard(),
     )
 
-async def meetup(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def meetup(update: Update, context: ContextTypes.DEFAULT_TYPE, config=None):
     """Handles the /meetup command."""
     if not is_private_chat(update):
         return
 
-    await update.message.reply_text(
-        "https://www.meetup.com/guadalajara-bitcoin-and-lightning/"
-    )
+    await update.message.reply_text(_community_link(config, "meetup"))
 
-async def eventos(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def eventos(update: Update, context: ContextTypes.DEFAULT_TYPE, config=None):
     """Handle the /eventos command."""
     if not is_private_chat(update):
         return
 
-    await update.message.reply_text(
-        "https://btcgdl.com/eventos.html"
-    )
+    await update.message.reply_text(_community_link(config, "eventos"))
 
-async def bitdevs(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def bitdevs(update: Update, context: ContextTypes.DEFAULT_TYPE, config=None):
     """Handles the /bitdevs command."""
     if not is_private_chat(update):
         return
 
-    await update.message.reply_text(
-        "https://bitdevs.btcgdl.com/"
-    )
+    await update.message.reply_text(_community_link(config, "bitdevs"))
 
-async def web(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def web(update: Update, context: ContextTypes.DEFAULT_TYPE, config=None):
     """Handle the /web command."""
     if not is_private_chat(update):
         return
 
-    await update.message.reply_text(
-        "https://btcgdl.com/"
-    )
+    await update.message.reply_text(_community_link(config, "web"))
 
 async def button_click(
     update: Update,
@@ -261,6 +283,7 @@ async def button_click(
     community_group_url="",
     telegram_metadata=None,
     telegram_metadata_file=None,
+    config=None,
 ):
     """
     Handles callback queries from inline keyboard buttons.
@@ -274,6 +297,7 @@ async def button_click(
     user = query.from_user
     persist_user_metadata(user, telegram_metadata, telegram_metadata_file)
     data = query.data
+    community_name = _community_display_name(config)
     notification_preferences = notification_preferences if notification_preferences is not None else {}
     had_saved_preferences = str(user.id) in notification_preferences
     preferences = ensure_user_preferences(
@@ -354,7 +378,7 @@ async def button_click(
 
     elif data == "subscriptions_back":
         await edit_subscription_message(
-            get_main_menu_text(),
+            get_main_menu_text(community_name),
             main_keyboard,
         )
 
@@ -390,7 +414,7 @@ async def button_click(
                     coffee_hosts,
                     user.id,
                     admin_id,
-                    datetime.now(COFFEE_TIMEZONE).date(),
+                    datetime.now(get_community_timezone()).date(),
                 ),
                 get_coffee_schedule_keyboard(),
                 parse_mode="HTML",
@@ -453,12 +477,12 @@ async def button_click(
             await query.message.delete()
             await context.bot.send_message(
                 chat_id=query.message.chat_id,
-                text=get_main_menu_text(),
+                text=get_main_menu_text(community_name),
                 reply_markup=main_keyboard,
             )
         else:
             await query.edit_message_text(
-                text=get_main_menu_text(),
+                text=get_main_menu_text(community_name),
                 reply_markup=main_keyboard,
             )
 
@@ -500,10 +524,10 @@ async def button_click(
 
         msg = (
             "✅ Te diste de baja de las notificaciones de eventos de "
-            "Bitcoin & Lightning GDL."
+            f"{community_name}."
             if was_subscribed
             else "ℹ️ No estabas suscrito a las notificaciones de eventos de "
-            "Bitcoin & Lightning GDL."
+            f"{community_name}."
         )
         if is_photo_msg:
             await query.edit_message_caption(caption=msg, reply_markup=main_keyboard)
@@ -511,13 +535,7 @@ async def button_click(
             await query.edit_message_text(text=msg, reply_markup=main_keyboard)
 
     elif data in {"meetup", "eventos", "bitdevs", "web"}:
-        links = {
-            "meetup": "https://www.meetup.com/guadalajara-bitcoin-and-lightning/",
-            "eventos": "https://btcgdl.com/eventos.html",
-            "bitdevs": "https://bitdevs.btcgdl.com/",
-            "web": "https://btcgdl.com/",
-        }
-        msg = links[data]
+        msg = _community_link(config, data)
         if is_photo_msg:
             await query.message.delete()
             await context.bot.send_message(chat_id=query.message.chat_id, text=msg)

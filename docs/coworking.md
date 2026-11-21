@@ -39,8 +39,8 @@ community-group link below the coworking details. If it is empty, that link is
 omitted without changing the rest of the message.
 
 `COWORKING_WEEKDAY` uses Python weekday numbering: Monday is `0` and Sunday is
-`6`. `COWORKING_HOUR` and the quiet-window check use
-`America/Mexico_City`.
+`6`. `COWORKING_HOUR` and the quiet-window check use `COMMUNITY_TIMEZONE`,
+which defaults to `America/Mexico_City`.
 
 ## Delivery Behavior
 

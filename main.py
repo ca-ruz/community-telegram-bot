@@ -1,6 +1,8 @@
 import os
 import logging
 from functools import partial
+from urllib.parse import urlparse
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from dotenv import load_dotenv
 from telegram import BotCommand, BotCommandScopeChat
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
@@ -56,7 +58,11 @@ from core.membership_payments import (
     synchronize_multi_period_payment_state,
 )
 from tools.local.data_manager import load_json, load_reminder_rules
-from tools.local.meetup_ics import DEFAULT_LOOKAHEAD_DAYS
+from tools.local.meetup_ics import (
+    DEFAULT_LOOKAHEAD_DAYS,
+    DEFAULT_MEETUP_ICS_USER_AGENT,
+)
+from core.community_timezone import configure_community_timezone
 from services.openai_service import OpenAIService
 
 # Load environment
@@ -120,12 +126,82 @@ def parse_positive_env_int(name, default):
     return default
 
 
+def parse_env_string(name, default):
+    """Parse a non-empty string environment variable with a safe fallback."""
+    raw_value = os.getenv(name)
+    if raw_value is None or not raw_value.strip():
+        return default
+    return raw_value.strip()
+
+
+def parse_env_url(name, default):
+    """Parse an optional HTTP(S) URL, falling back when a non-empty value is invalid."""
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+    value = raw_value.strip()
+    if not value:
+        return ""
+
+    parsed_url = urlparse(value)
+    if parsed_url.scheme in {"http", "https"} and parsed_url.netloc:
+        return value
+
+    logger.warning("Invalid URL value for %s; using the configured default.", name)
+    return default
+
+
+def parse_env_timezone(name, default):
+    """Parse an IANA timezone name and fall back when it is unknown."""
+    timezone_name = parse_env_string(name, default)
+    try:
+        ZoneInfo(timezone_name)
+    except (ValueError, ZoneInfoNotFoundError):
+        logger.warning("Invalid timezone value for %s; using default %s.", name, default)
+        return default
+    return timezone_name
+
+
 # Configuration
 CONFIG = {
     'BOT_TOKEN': os.getenv("TELEGRAM_BOT_TOKEN"),
     'ADMIN_ID': int(os.getenv("TELEGRAM_ADMIN_ID", "0")),
     'PAYMENT_ADMIN_ID': parse_env_int('PAYMENT_ADMIN_ID', 0),
     'COMMUNITY_GROUP_URL': os.getenv('COMMUNITY_GROUP_URL', '').strip(),
+    'COMMUNITY_NAME': parse_env_string('COMMUNITY_NAME', 'BTC GDL'),
+    'COMMUNITY_DISPLAY_NAME': parse_env_string(
+        'COMMUNITY_DISPLAY_NAME',
+        'Bitcoin & Lightning GDL',
+    ),
+    'COMMUNITY_CITY': parse_env_string(
+        'COMMUNITY_CITY',
+        'Guadalajara, Mexico',
+    ),
+    'COMMUNITY_TIMEZONE': parse_env_timezone(
+        'COMMUNITY_TIMEZONE',
+        'America/Mexico_City',
+    ),
+    'COMMUNITY_WEBSITE_URL': parse_env_url(
+        'COMMUNITY_WEBSITE_URL',
+        'https://btcgdl.com/',
+    ),
+    'COMMUNITY_EVENTS_URL': parse_env_url(
+        'COMMUNITY_EVENTS_URL',
+        'https://btcgdl.com/eventos.html',
+    ),
+    'COMMUNITY_MEETUP_URL': parse_env_url(
+        'COMMUNITY_MEETUP_URL',
+        'https://www.meetup.com/guadalajara-bitcoin-and-lightning/',
+    ),
+    'COMMUNITY_BITDEVS_URL': parse_env_url(
+        'COMMUNITY_BITDEVS_URL',
+        'https://bitdevs.btcgdl.com/',
+    ),
+    'WELCOME_IMAGE_PATH': parse_env_string('WELCOME_IMAGE_PATH', 'btcgdl.png'),
+    'MEETUP_ICS_USER_AGENT': parse_env_string(
+        'MEETUP_ICS_USER_AGENT',
+        DEFAULT_MEETUP_ICS_USER_AGENT,
+    ),
     'OPENAI_API_KEY': os.getenv("OPENAI_API_KEY"),
     'OPENAI_IMAGE_MODEL': os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-1-mini"),
     'OPENAI_IMAGE_QUALITY': os.getenv("OPENAI_IMAGE_QUALITY", "medium"),
@@ -247,6 +323,8 @@ CONFIG = {
     'COWORKING_MEMBERSHIP_URL': os.getenv('COWORKING_MEMBERSHIP_URL', ''),
 }
 
+configure_community_timezone(CONFIG['COMMUNITY_TIMEZONE'])
+
 # --- STATE INITIALIZATION & MIGRATION ---
 raw_notified = load_json(CONFIG['PROMOTED_FILE'], {})
 event_subscribers = set(load_json(CONFIG['SUBSCRIBERS_FILE'], []))
@@ -328,7 +406,10 @@ def main():
             BotCommand("menu", "Abrir el menu"),
             BotCommand("suscripciones", "Administrar suscripciones"),
             BotCommand("meetup", "Ver eventos en Meetup"),
-            BotCommand("eventos", "Ver eventos de Bitcoin & Lightning GDL"),
+            BotCommand(
+                "eventos",
+                f"Ver eventos de {CONFIG['COMMUNITY_DISPLAY_NAME']}",
+            ),
             BotCommand("bitdevs", "Ver BitDevs"),
             BotCommand("web", "Visitar el sitio web"),
         ]
@@ -444,11 +525,13 @@ def main():
         coffee_hosts=STATE['coffee_hosts'],
         telegram_metadata=STATE['telegram_metadata'],
         telegram_metadata_file=CONFIG['TELEGRAM_METADATA_FILE'],
+        config=CONFIG,
     )))
     app.add_handler(CommandHandler("menu", partial(
         menu,
         admin_id=CONFIG['ADMIN_ID'],
         coffee_hosts=STATE['coffee_hosts'],
+        config=CONFIG,
     )))
     app.add_handler(CommandHandler("suscripciones", partial(
         subscriptions,
@@ -464,10 +547,10 @@ def main():
         coffee_hosts=STATE['coffee_hosts'],
         coffee_host_schedule=STATE['coffee_host_schedule'],
     )))
-    app.add_handler(CommandHandler("meetup", meetup))
-    app.add_handler(CommandHandler("eventos", eventos))
-    app.add_handler(CommandHandler("bitdevs", bitdevs))
-    app.add_handler(CommandHandler("web", web))
+    app.add_handler(CommandHandler("meetup", partial(meetup, config=CONFIG)))
+    app.add_handler(CommandHandler("eventos", partial(eventos, config=CONFIG)))
+    app.add_handler(CommandHandler("bitdevs", partial(bitdevs, config=CONFIG)))
+    app.add_handler(CommandHandler("web", partial(web, config=CONFIG)))
     
     # Admin Command Handlers
     app.add_handler(CommandHandler("broadcast", 
@@ -494,7 +577,12 @@ def main():
             state=STATE,
         )))
     app.add_handler(CommandHandler("addevent",
-        partial(add_event, admin_id=CONFIG['ADMIN_ID'], ai_service=AI_SERVICE)))
+        partial(
+            add_event,
+            admin_id=CONFIG['ADMIN_ID'],
+            ai_service=AI_SERVICE,
+            config=CONFIG,
+        )))
     app.add_handler(CommandHandler("editevent",
         partial(edit_event_start, admin_id=CONFIG['ADMIN_ID'], config=CONFIG)))
     app.add_handler(CommandHandler("deleteevent",
@@ -687,6 +775,7 @@ def main():
             community_group_url=CONFIG['COMMUNITY_GROUP_URL'],
             telegram_metadata=STATE['telegram_metadata'],
             telegram_metadata_file=CONFIG['TELEGRAM_METADATA_FILE'],
+            config=CONFIG,
         )))
 
     # Smart Admin Chat Handler (Natural Language)

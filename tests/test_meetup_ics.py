@@ -79,6 +79,20 @@ def test_fetch_meetup_ics_events_filters_and_sorts_future_events():
     assert request.full_url == "https://example.com/events.ics"
 
 
+def test_fetch_meetup_ics_events_uses_configured_user_agent():
+    """The configured User-Agent is sent when requesting the ICS feed."""
+    response = FakeResponse(fixture_content())
+
+    with patch("tools.local.meetup_ics.urlopen", return_value=response) as opener:
+        fetch_meetup_ics_events(
+            "https://example.com/events.ics",
+            user_agent="example-community-bot/2.0",
+        )
+
+    request = opener.call_args.args[0]
+    assert request.get_header("User-agent") == "example-community-bot/2.0"
+
+
 def test_fetch_meetup_ics_events_includes_multiple_event_types_at_lookahead_boundary():
     """Timed and all-day events are included only through the exact cutoff."""
     now = datetime(2026, 10, 23, 12, 0, tzinfo=timezone.utc)
@@ -137,3 +151,20 @@ def test_event_source_selection_uses_meetup_ics_when_explicitly_configured():
         days=21,
         now=now,
     )
+
+
+def test_event_source_selection_forwards_configured_user_agent():
+    """The source boundary forwards the configured Meetup User-Agent."""
+    config = {
+        "EVENT_SOURCE": "meetup_ics",
+        "MEETUP_ICS_URL": "https://example.com/events.ics",
+        "MEETUP_ICS_USER_AGENT": "example-community-bot/2.0",
+    }
+
+    with patch(
+        "core.promoter.fetch_meetup_ics_events",
+        return_value=[],
+    ) as provider:
+        fetch_upcoming_events_for_source(config)
+
+    assert provider.call_args.kwargs["user_agent"] == "example-community-bot/2.0"

@@ -5,6 +5,24 @@ from unittest.mock import AsyncMock, patch
 import main
 
 
+def test_parse_env_timezone_accepts_valid_iana_zone(monkeypatch):
+    """Timezone configuration accepts a valid IANA name from the environment."""
+    monkeypatch.setenv("COMMUNITY_TIMEZONE", "Europe/Madrid")
+
+    assert main.parse_env_timezone("COMMUNITY_TIMEZONE", "America/Mexico_City") == (
+        "Europe/Madrid"
+    )
+
+
+def test_parse_env_timezone_falls_back_for_invalid_name(monkeypatch):
+    """Invalid timezone configuration falls back to the supplied default."""
+    monkeypatch.setenv("COMMUNITY_TIMEZONE", "Not/A_Timezone")
+
+    assert main.parse_env_timezone("COMMUNITY_TIMEZONE", "America/Mexico_City") == (
+        "America/Mexico_City"
+    )
+
+
 class FakeJobQueue:
     """Record recurring jobs registered by the application bootstrap."""
 

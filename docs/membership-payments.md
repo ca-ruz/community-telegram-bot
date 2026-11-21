@@ -37,8 +37,9 @@ Telegram group that receives anonymous public payment reminders. It is not the
 same as the general broadcast-group list. Replace `0` with your group's
 numeric Telegram chat ID before enabling public payment reminders.
 
-The reminder hour uses `America/Mexico_City`. The payment and member JSON files
-are runtime data and must remain outside Git.
+The reminder hour uses `COMMUNITY_TIMEZONE` (default `America/Mexico_City`).
+Billing-period keys continue to use UTC. The payment and member JSON files are
+runtime data and must remain outside Git.
 
 Automated payment delivery requires an explicit `PAYMENT_DELIVERY_MODE`:
 
@@ -261,7 +262,7 @@ them eligible for a later due stage.
 ## Reminder Schedule
 
 All reminders are evaluated at the configured local hour in
-`America/Mexico_City`:
+`COMMUNITY_TIMEZONE` (default `America/Mexico_City`):
 
 - Three days before the first day of a billing period, send one private
   reminder to each unpaid member and one anonymous reminder to the configured
@@ -384,7 +385,7 @@ current and next billing periods available after startup.
 - Repeated reminder after a restart: inspect `data/payment_state.json` and confirm the service user can write to the `data/` directory.
 - Wrong time: check the device timezone, `PAYMENT_REMINDER_HOUR`, and
   `PAYMENT_ADVANCE_REMINDER_DAYS`; the schedule is evaluated in
-  `America/Mexico_City`.
+  `COMMUNITY_TIMEZONE`.
 - Check logs with `journalctl`; never paste `.env` or runtime JSON contents into public issues.
 
 ## Automated Payment Verification
