@@ -53,6 +53,9 @@ SPANISH_MONTHS = (
     "diciembre",
 )
 URL_PATTERN = re.compile(r"https?://[^\s<>]+")
+MANUAL_PROMO_DETAIL_LINE_PATTERN = re.compile(
+    r"^\s*(?P<marker>📅|🕕|⏰|📍)\s*(?P<value>.*?)\s*$"
+)
 EVENT_DATE_CUE_PATTERN = re.compile(
     r"\b(?P<spanish_weekday>este\s+(?:lunes|martes|miércoles|jueves|viernes|sábado|domingo))\b"
     r"|\b(?P<english_weekday>this\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b"
@@ -135,11 +138,21 @@ def _format_manual_promo_datetime(event_start):
     return f"{weekday} {event_time.day} de {month}", time
 
 
-def _contains_manual_promo_detail(text, value, marker):
-    """Return whether text already contains a formatted promo detail."""
-    normalized_text = re.sub(r"\s+", " ", text.casefold()).strip()
-    normalized_value = re.sub(r"\s+", " ", value.casefold()).strip()
-    return marker in text or normalized_value in normalized_text
+def _extract_manual_promo_details(text):
+    """Remove standalone event metadata lines and return their location values."""
+    body_lines = []
+    locations = []
+    for line in text.splitlines():
+        detail = MANUAL_PROMO_DETAIL_LINE_PATTERN.fullmatch(line)
+        if not detail:
+            body_lines.append(line)
+            continue
+        if detail.group("marker") == "📍" and detail.group("value"):
+            locations.append(detail.group("value"))
+
+    body = "\n".join(body_lines)
+    body = re.sub(r"\n{3,}", "\n\n", body).strip()
+    return body, locations
 
 
 def _split_manual_promo_links(text):
@@ -265,17 +278,23 @@ def format_manual_promo_caption(
             caption = f"{caption}\n\n{community_cta}"
         return caption[:1024]
 
+    publication_text, embedded_locations = _extract_manual_promo_details(
+        publication_text
+    )
     date_text, time_text = _format_manual_promo_datetime(promo["event_start"])
-    details = []
+    details = [f"📅 {date_text}", f"🕕 {time_text}"]
 
-    if not _contains_manual_promo_detail(publication_text, date_text, "📅"):
-        details.append(f"📅 {date_text}")
-    if not _contains_manual_promo_detail(publication_text, time_text, "🕕"):
-        details.append(f"🕕 {time_text}")
-
-    location = str(promo.get("location", "")).strip()
-    if location and not _contains_manual_promo_detail(publication_text, location, "📍"):
-        details.append(f"📍 {location}")
+    locations = []
+    for location in [promo.get("location", ""), *embedded_locations]:
+        location = str(location).strip()
+        normalized_location = re.sub(r"\s+", " ", location.casefold())
+        if location and all(
+            normalized_location
+            != re.sub(r"\s+", " ", existing.casefold())
+            for existing in locations
+        ):
+            locations.append(location)
+    details.extend(f"📍 {location}" for location in locations)
 
     sections = [publication_text] if publication_text else []
     if details:
