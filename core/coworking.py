@@ -8,9 +8,10 @@ from zoneinfo import ZoneInfo
 from core.community import format_community_group_cta
 from core.group_notification_routing import get_group_targets
 from tools.local.data_manager import load_json, save_json
+from core.community_timezone import DEFAULT_COMMUNITY_TIMEZONE, get_community_timezone
 
 
-COWORKING_TIMEZONE = ZoneInfo("America/Mexico_City")
+COWORKING_TIMEZONE = ZoneInfo(DEFAULT_COMMUNITY_TIMEZONE)
 logger = logging.getLogger(__name__)
 
 
@@ -27,18 +28,20 @@ def save_coworking_state(file_path, state):
 
 def current_coworking_week(now=None):
     """Return the local ISO week key for a timestamp."""
-    current_time = now or datetime.now(COWORKING_TIMEZONE)
+    community_timezone = get_community_timezone()
+    current_time = now or datetime.now(community_timezone)
     if current_time.tzinfo is None:
-        current_time = current_time.replace(tzinfo=COWORKING_TIMEZONE)
-    return current_time.astimezone(COWORKING_TIMEZONE).strftime("%G-W%V")
+        current_time = current_time.replace(tzinfo=community_timezone)
+    return current_time.astimezone(community_timezone).strftime("%G-W%V")
 
 
 def get_coworking_notification_week(now=None, weekday=2, hour=10):
     """Return the due week key for the configured weekly notification slot."""
-    current_time = now or datetime.now(COWORKING_TIMEZONE)
+    community_timezone = get_community_timezone()
+    current_time = now or datetime.now(community_timezone)
     if current_time.tzinfo is None:
-        current_time = current_time.replace(tzinfo=COWORKING_TIMEZONE)
-    local_time = current_time.astimezone(COWORKING_TIMEZONE)
+        current_time = current_time.replace(tzinfo=community_timezone)
+    local_time = current_time.astimezone(community_timezone)
     if local_time.weekday() != weekday or local_time.hour < hour:
         return None
     return current_coworking_week(local_time)
@@ -48,16 +51,16 @@ def _parse_event_time(raw_value):
     """Parse an ISO event timestamp into the coworking timezone."""
     event_time = datetime.fromisoformat(str(raw_value).replace("Z", "+00:00"))
     if event_time.tzinfo is None:
-        event_time = event_time.replace(tzinfo=COWORKING_TIMEZONE)
-    return event_time.astimezone(COWORKING_TIMEZONE)
+        event_time = event_time.replace(tzinfo=get_community_timezone())
+    return event_time.astimezone(get_community_timezone())
 
 
 def has_nearby_event(now, events, manual_promos, quiet_window_hours):
     """Return whether a calendar or manual event is inside the quiet window."""
-    current_time = now or datetime.now(COWORKING_TIMEZONE)
+    current_time = now or datetime.now(get_community_timezone())
     if current_time.tzinfo is None:
-        current_time = current_time.replace(tzinfo=COWORKING_TIMEZONE)
-    current_time = current_time.astimezone(COWORKING_TIMEZONE)
+        current_time = current_time.replace(tzinfo=get_community_timezone())
+    current_time = current_time.astimezone(get_community_timezone())
     quiet_window = timedelta(hours=quiet_window_hours)
 
     event_times = []
@@ -121,7 +124,7 @@ async def check_coworking_notifications(context, config, state, now=None):
     if not config.get("ENABLE_COWORKING_NOTIFICATIONS", True):
         return
 
-    current_time = now or datetime.now(COWORKING_TIMEZONE)
+    current_time = now or datetime.now(get_community_timezone())
     week_key = get_coworking_notification_week(
         current_time,
         config.get("COWORKING_WEEKDAY", 2),

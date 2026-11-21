@@ -2,8 +2,9 @@
 
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
+from core.community_timezone import DEFAULT_COMMUNITY_TIMEZONE, get_community_timezone
 
-GDL_TZ = ZoneInfo("America/Mexico_City")
+GDL_TZ = ZoneInfo(DEFAULT_COMMUNITY_TIMEZONE)
 
 
 def get_event_reminder_stage(
@@ -14,13 +15,14 @@ def get_event_reminder_stage(
     morning_lead_hours=2,
 ):
     """Return the most urgent reminder stage currently due for an event."""
+    community_timezone = get_community_timezone()
     if event_time.tzinfo is None:
-        event_time = event_time.replace(tzinfo=GDL_TZ)
+        event_time = event_time.replace(tzinfo=community_timezone)
     if now.tzinfo is None:
-        now = now.replace(tzinfo=GDL_TZ)
+        now = now.replace(tzinfo=community_timezone)
 
-    event_time_gdl = event_time.astimezone(GDL_TZ)
-    now_gdl = now.astimezone(GDL_TZ)
+    event_time_gdl = event_time.astimezone(community_timezone)
+    now_gdl = now.astimezone(community_timezone)
     if event_time_gdl <= now_gdl:
         return None
 

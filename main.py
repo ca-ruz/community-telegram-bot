@@ -58,7 +58,11 @@ from core.membership_payments import (
     synchronize_multi_period_payment_state,
 )
 from tools.local.data_manager import load_json, load_reminder_rules
-from tools.local.meetup_ics import DEFAULT_LOOKAHEAD_DAYS
+from tools.local.meetup_ics import (
+    DEFAULT_LOOKAHEAD_DAYS,
+    DEFAULT_MEETUP_ICS_USER_AGENT,
+)
+from core.community_timezone import configure_community_timezone
 from services.openai_service import OpenAIService
 
 # Load environment
@@ -196,7 +200,7 @@ CONFIG = {
     'WELCOME_IMAGE_PATH': parse_env_string('WELCOME_IMAGE_PATH', 'btcgdl.png'),
     'MEETUP_ICS_USER_AGENT': parse_env_string(
         'MEETUP_ICS_USER_AGENT',
-        'community-telegram-bot/1.0',
+        DEFAULT_MEETUP_ICS_USER_AGENT,
     ),
     'OPENAI_API_KEY': os.getenv("OPENAI_API_KEY"),
     'OPENAI_IMAGE_MODEL': os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-1-mini"),
@@ -318,6 +322,8 @@ CONFIG = {
     'COWORKING_DAY_PASS_URL': os.getenv('COWORKING_DAY_PASS_URL', ''),
     'COWORKING_MEMBERSHIP_URL': os.getenv('COWORKING_MEMBERSHIP_URL', ''),
 }
+
+configure_community_timezone(CONFIG['COMMUNITY_TIMEZONE'])
 
 # --- STATE INITIALIZATION & MIGRATION ---
 raw_notified = load_json(CONFIG['PROMOTED_FILE'], {})

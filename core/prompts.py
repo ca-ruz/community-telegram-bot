@@ -42,18 +42,18 @@ REQUIRED JSON FORMAT:
   "location": "FULL ADDRESS or EXACT LOCATION NAME",
   "description": "Any additional details",
   "start": {{
-    "dateTime": "YYYY-MM-DDTHH:MM:SS-06:00",
-    "timeZone": "America/Mexico_City"
+    "dateTime": "YYYY-MM-DDTHH:MM:SS±HH:MM",
+    "timeZone": "{community_timezone}"
   }},
   "end": {{
-    "dateTime": "YYYY-MM-DDTHH:MM:SS-06:00",
-    "timeZone": "America/Mexico_City"
+    "dateTime": "YYYY-MM-DDTHH:MM:SS±HH:MM",
+    "timeZone": "{community_timezone}"
   }}
 }}
 
 INSTRUCTIONS:
 1. **Google Maps Search:** If the user provides a vague location (e.g., a café or community venue), provide the **full street address** when known. If you are unsure, provide the most likely specific name.
-2. Default timezone is 'America/Mexico_City' (-06:00).
+2. Default timezone is '{community_timezone}'. Use the correct UTC offset for the event date.
 3. If the user doesn't specify an end time, set it to 1 hour after the start time.
 4. Today's date is: {current_date} (local to {community_city}).
 5. Extract as much detail as possible. Return ONLY the JSON object.
@@ -83,4 +83,8 @@ def build_event_parser_prompt(current_date, config=None):
     return EVENT_PARSER_SYSTEM_PROMPT.format(
         current_date=current_date,
         community_city=settings.get("COMMUNITY_CITY", "Guadalajara, Mexico"),
+        community_timezone=settings.get(
+            "COMMUNITY_TIMEZONE",
+            "America/Mexico_City",
+        ),
     )

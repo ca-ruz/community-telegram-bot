@@ -3,6 +3,7 @@ import re
 import logging
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
+from core.community_timezone import DEFAULT_COMMUNITY_TIMEZONE
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
@@ -10,7 +11,7 @@ from googleapiclient.discovery import build
 logger = logging.getLogger(__name__)
 
 # Configuration constants
-GDL_TZ = ZoneInfo("America/Mexico_City")
+GDL_TZ = ZoneInfo(DEFAULT_COMMUNITY_TIMEZONE)
 
 def get_calendar_service_with_creds(scopes, cred_file):
     """

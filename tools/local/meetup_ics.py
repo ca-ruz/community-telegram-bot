@@ -8,12 +8,14 @@ from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from icalendar import Calendar
+from core.community_timezone import DEFAULT_COMMUNITY_TIMEZONE, get_community_timezone
 
 logger = logging.getLogger(__name__)
 
-MEETUP_TIMEZONE = ZoneInfo("America/Mexico_City")
+MEETUP_TIMEZONE = ZoneInfo(DEFAULT_COMMUNITY_TIMEZONE)
 DEFAULT_TIMEOUT_SECONDS = 20
 DEFAULT_LOOKAHEAD_DAYS = 35
+DEFAULT_MEETUP_ICS_USER_AGENT = "community-telegram-bot/1.0"
 URL_PATTERN = re.compile(r"https?://[^\s<>]+")
 LOCATION_PATTERNS = (
     re.compile(r"^\s*Nos vemos en\s+(.+?)\s*:?\s*$", re.IGNORECASE | re.MULTILINE),
@@ -29,7 +31,11 @@ class MeetupICSParseError(ValueError):
     """Raised when the Meetup ICS feed cannot be parsed."""
 
 
-def fetch_ics_feed(url, timeout=DEFAULT_TIMEOUT_SECONDS):
+def fetch_ics_feed(
+    url,
+    timeout=DEFAULT_TIMEOUT_SECONDS,
+    user_agent=DEFAULT_MEETUP_ICS_USER_AGENT,
+):
     """Download an ICS feed and return its raw bytes."""
     feed_url = str(url or "").strip()
     if not feed_url:
@@ -37,7 +43,7 @@ def fetch_ics_feed(url, timeout=DEFAULT_TIMEOUT_SECONDS):
 
     request = Request(
         feed_url,
-        headers={"User-Agent": "BTCGDL-Message-Bot/1.0"},
+        headers={"User-Agent": str(user_agent).strip() or DEFAULT_MEETUP_ICS_USER_AGENT},
     )
     try:
         with urlopen(request, timeout=timeout) as response:
@@ -65,9 +71,13 @@ def _property_datetime(component, name):
         if event_time.tzinfo is None:
             timezone_name = str(property_value.params.get("TZID", "")).strip('"')
             try:
-                event_timezone = ZoneInfo(timezone_name) if timezone_name else MEETUP_TIMEZONE
+                event_timezone = (
+                    ZoneInfo(timezone_name)
+                    if timezone_name
+                    else get_community_timezone()
+                )
             except ZoneInfoNotFoundError:
-                event_timezone = MEETUP_TIMEZONE
+                event_timezone = get_community_timezone()
             event_time = event_time.replace(tzinfo=event_timezone)
         return event_time
 
@@ -164,7 +174,7 @@ def _event_start_datetime(event):
     start_value = event["start"].get("dateTime", event["start"].get("date"))
     event_time = datetime.fromisoformat(start_value.replace("Z", "+00:00"))
     if event_time.tzinfo is None:
-        event_time = event_time.replace(tzinfo=MEETUP_TIMEZONE)
+        event_time = event_time.replace(tzinfo=get_community_timezone())
     return event_time
 
 
@@ -173,13 +183,16 @@ def fetch_meetup_ics_events(
     days=DEFAULT_LOOKAHEAD_DAYS,
     now=None,
     timeout=DEFAULT_TIMEOUT_SECONDS,
+    user_agent=DEFAULT_MEETUP_ICS_USER_AGENT,
 ):
     """Fetch and return future Meetup events within the requested time window."""
     current_time = now or datetime.now(timezone.utc)
     if current_time.tzinfo is None:
         current_time = current_time.replace(tzinfo=timezone.utc)
 
-    events = parse_meetup_ics(fetch_ics_feed(url, timeout=timeout))
+    events = parse_meetup_ics(
+        fetch_ics_feed(url, timeout=timeout, user_agent=user_agent)
+    )
     cutoff = current_time + timedelta(days=days) if days is not None else None
     upcoming = []
     for event in events:

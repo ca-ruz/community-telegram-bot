@@ -20,7 +20,6 @@ from core.notification_preferences import (
 )
 from core.monthly_calendar import format_calendar_title
 from core.coffee_hosts import (
-    COFFEE_TIMEZONE,
     can_view_coffee_schedule,
     format_private_coffee_schedule,
 )
@@ -32,6 +31,7 @@ from core.event_registrations import (
     unregister_user,
 )
 from core.chat_scope import is_private_chat
+from core.community_timezone import get_community_timezone
 from core.telegram_metadata import record_user_metadata, save_telegram_metadata
 from tools.local.data_manager import load_json, save_json
 
@@ -233,7 +233,7 @@ async def coffee_schedule(
             coffee_hosts,
             user_id,
             admin_id,
-            datetime.now(COFFEE_TIMEZONE).date(),
+            datetime.now(get_community_timezone()).date(),
         ),
         parse_mode="HTML",
         reply_markup=get_coffee_schedule_keyboard(),
@@ -414,7 +414,7 @@ async def button_click(
                     coffee_hosts,
                     user.id,
                     admin_id,
-                    datetime.now(COFFEE_TIMEZONE).date(),
+                    datetime.now(get_community_timezone()).date(),
                 ),
                 get_coffee_schedule_keyboard(),
                 parse_mode="HTML",

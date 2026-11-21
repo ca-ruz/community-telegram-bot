@@ -5,12 +5,16 @@ from zoneinfo import ZoneInfo
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
 from tools.local.calendar_api import get_calendar_service_with_creds, fetch_upcoming_events, extract_link, friendly_delta
-from tools.local.meetup_ics import DEFAULT_LOOKAHEAD_DAYS, fetch_meetup_ics_events
+from tools.local.meetup_ics import (
+    DEFAULT_LOOKAHEAD_DAYS,
+    fetch_meetup_ics_events,
+)
 from tools.local.data_manager import save_json
 from core.notification_preferences import filter_users_by_category
 from core.reminder_timing import get_event_reminder_stage
 from core.community import format_community_group_cta
 from core.group_notification_routing import get_group_targets
+from core.community_timezone import DEFAULT_COMMUNITY_TIMEZONE, get_community_timezone
 from core.imported_events import (
     get_imported_event_key,
     save_imported_events,
@@ -21,7 +25,7 @@ from core.imported_events import (
 logger = logging.getLogger(__name__)
 
 # Configuration constants
-GDL_TZ = ZoneInfo("America/Mexico_City")
+GDL_TZ = ZoneInfo(DEFAULT_COMMUNITY_TIMEZONE)
 
 
 def fetch_upcoming_events_for_source(config, days=None):
@@ -35,10 +39,12 @@ def fetch_upcoming_events_for_source(config, days=None):
                 DEFAULT_LOOKAHEAD_DAYS,
             )
         now = datetime.now(timezone.utc)
+        meetup_options = {"days": lookahead_days, "now": now}
+        if config.get("MEETUP_ICS_USER_AGENT"):
+            meetup_options["user_agent"] = config["MEETUP_ICS_USER_AGENT"]
         events = fetch_meetup_ics_events(
             config.get("MEETUP_ICS_URL", ""),
-            days=lookahead_days,
-            now=now,
+            **meetup_options,
         )
         return events, now
 
@@ -133,14 +139,14 @@ def _event_reminder_message(
     start_raw = event["start"].get("dateTime", event["start"].get("date"))
     event_time = datetime.fromisoformat(start_raw.replace("Z", "+00:00"))
     if event_time.tzinfo is None:
-        event_time = event_time.replace(tzinfo=GDL_TZ)
+        event_time = event_time.replace(tzinfo=get_community_timezone())
     description = event.get("description", "")
     link = (
         extract_link(description)
         or event.get("htmlLink")
         or community_website_url
     )
-    event_time_gdl = event_time.astimezone(GDL_TZ)
+    event_time_gdl = event_time.astimezone(get_community_timezone())
     formatted_date = event_time_gdl.strftime("%d/%m")
     formatted_time = event_time_gdl.strftime("%I:%M %p")
     message = (
@@ -458,7 +464,7 @@ async def check_calendar(context, config, state):
                 or config.get("COMMUNITY_WEBSITE_URL", "https://btcgdl.com/")
             )
             
-            event_time_gdl = event_time.astimezone(GDL_TZ)
+            event_time_gdl = event_time.astimezone(get_community_timezone())
             formatted_date = event_time_gdl.strftime("%d/%m")
             formatted_time = event_time_gdl.strftime("%I:%M %p")
 

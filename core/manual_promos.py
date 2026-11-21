@@ -17,9 +17,10 @@ from core.notification_preferences import filter_users_by_category
 from core.reminder_timing import get_event_reminder_stage
 from core.community import format_community_group_cta
 from core.group_notification_routing import get_group_targets
+from core.community_timezone import DEFAULT_COMMUNITY_TIMEZONE, get_community_timezone
 
 logger = logging.getLogger(__name__)
-MANUAL_PROMO_TIMEZONE = ZoneInfo("America/Mexico_City")
+MANUAL_PROMO_TIMEZONE = ZoneInfo(DEFAULT_COMMUNITY_TIMEZONE)
 SPANISH_WEEKDAYS = (
     "lunes",
     "martes",
@@ -87,9 +88,10 @@ def save_manual_promos(file_path, promos):
 
 def get_upcoming_published_promos(promos, now=None):
     """Return future flyers that have already been published, ordered by date."""
-    current_time = now or datetime.now(MANUAL_PROMO_TIMEZONE)
+    community_timezone = get_community_timezone()
+    current_time = now or datetime.now(community_timezone)
     if current_time.tzinfo is None:
-        current_time = current_time.replace(tzinfo=MANUAL_PROMO_TIMEZONE)
+        current_time = current_time.replace(tzinfo=community_timezone)
 
     upcoming = []
     for promo in promos.values() if isinstance(promos, dict) else []:
@@ -107,8 +109,8 @@ def get_upcoming_published_promos(promos, now=None):
                 str(promo["event_start"]).replace("Z", "+00:00")
             )
             if event_time.tzinfo is None:
-                event_time = event_time.replace(tzinfo=MANUAL_PROMO_TIMEZONE)
-            event_time = event_time.astimezone(MANUAL_PROMO_TIMEZONE)
+                event_time = event_time.replace(tzinfo=get_community_timezone())
+            event_time = event_time.astimezone(get_community_timezone())
         except (KeyError, TypeError, ValueError):
             logger.warning("Skipping published promo with invalid event time.")
             continue
@@ -123,8 +125,8 @@ def _format_manual_promo_datetime(event_start):
     """Return localized date and time strings for a manual promo."""
     event_time = datetime.fromisoformat(str(event_start).replace("Z", "+00:00"))
     if event_time.tzinfo is None:
-        event_time = event_time.replace(tzinfo=MANUAL_PROMO_TIMEZONE)
-    event_time = event_time.astimezone(MANUAL_PROMO_TIMEZONE)
+        event_time = event_time.replace(tzinfo=get_community_timezone())
+    event_time = event_time.astimezone(get_community_timezone())
 
     weekday = SPANISH_WEEKDAYS[event_time.weekday()].capitalize()
     month = SPANISH_MONTHS[event_time.month - 1]
@@ -181,13 +183,14 @@ def _adjust_event_date_wording(text, event_start, now=None):
     except (TypeError, ValueError):
         return text
     if event_time.tzinfo is None:
-        event_time = event_time.replace(tzinfo=MANUAL_PROMO_TIMEZONE)
-    event_date = event_time.astimezone(MANUAL_PROMO_TIMEZONE).date()
+        event_time = event_time.replace(tzinfo=get_community_timezone())
+    event_date = event_time.astimezone(get_community_timezone()).date()
 
-    current_time = now or datetime.now(MANUAL_PROMO_TIMEZONE)
+    community_timezone = get_community_timezone()
+    current_time = now or datetime.now(community_timezone)
     if current_time.tzinfo is None:
-        current_time = current_time.replace(tzinfo=MANUAL_PROMO_TIMEZONE)
-    current_date = current_time.astimezone(MANUAL_PROMO_TIMEZONE).date()
+        current_time = current_time.replace(tzinfo=community_timezone)
+    current_date = current_time.astimezone(community_timezone).date()
     days_until_event = (event_date - current_date).days
     if days_until_event < 0:
         return text
@@ -341,7 +344,7 @@ def build_manual_promo(
 def set_first_notification_schedule(promo, scheduled_for):
     """Store the requested first-notification time and reset its delivery state."""
     if scheduled_for.tzinfo is None:
-        scheduled_for = scheduled_for.replace(tzinfo=MANUAL_PROMO_TIMEZONE)
+        scheduled_for = scheduled_for.replace(tzinfo=get_community_timezone())
     promo["first_notification_at"] = scheduled_for.isoformat()
     promo["first_notification_sent"] = False
 
@@ -360,7 +363,7 @@ def get_manual_promo_stage(
         str(event_source["event_start"]).replace("Z", "+00:00")
     )
     if event_time.tzinfo is None:
-        event_time = event_time.replace(tzinfo=MANUAL_PROMO_TIMEZONE)
+        event_time = event_time.replace(tzinfo=get_community_timezone())
     return _get_manual_promo_stage(
         event_time,
         now,
@@ -389,7 +392,7 @@ def _get_manual_promo_stage(
             )
             if first_notification_time.tzinfo is None:
                 first_notification_time = first_notification_time.replace(
-                    tzinfo=MANUAL_PROMO_TIMEZONE
+                    tzinfo=get_community_timezone()
                 )
             if now < first_notification_time:
                 return None
@@ -569,7 +572,7 @@ def _parse_manual_event_time(event_start):
     """Parse a manual event timestamp in the configured local timezone."""
     event_time = datetime.fromisoformat(str(event_start).replace("Z", "+00:00"))
     if event_time.tzinfo is None:
-        event_time = event_time.replace(tzinfo=MANUAL_PROMO_TIMEZONE)
+        event_time = event_time.replace(tzinfo=get_community_timezone())
     return event_time
 
 
@@ -680,7 +683,7 @@ async def _check_linked_manual_promo_reminders(
 
 async def check_manual_promo_reminders(context, config, state):
     """Deliver active manual promos to subscribers with per-stage deduplication."""
-    now = datetime.now(MANUAL_PROMO_TIMEZONE)
+    now = datetime.now(get_community_timezone())
     promos = state.setdefault("manual_promos", {})
     subscribers = state.setdefault("subscribers", set())
     groups = state.setdefault("groups", set())
@@ -727,7 +730,7 @@ async def check_manual_promo_reminders(context, config, state):
                 str(promo["event_start"]).replace("Z", "+00:00")
             )
             if event_time.tzinfo is None:
-                event_time = event_time.replace(tzinfo=MANUAL_PROMO_TIMEZONE)
+                event_time = event_time.replace(tzinfo=get_community_timezone())
         except (KeyError, TypeError, ValueError):
             logger.warning("Skipping manual promo %s with invalid event time.", promo_id)
             continue
