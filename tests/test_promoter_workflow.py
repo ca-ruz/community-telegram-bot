@@ -30,6 +30,7 @@ def make_config(tmp_path):
         "REMINDERS_FILE": str(tmp_path / "sent_reminders.json"),
         "PROMOTED_FILE": str(tmp_path / "notified_promos.json"),
         "PENDING_PROMOS_FILE": str(tmp_path / "pending_promos.json"),
+        "IMPORTED_EVENTS_FILE": str(tmp_path / "imported_events.json"),
         "REMINDER_RULES": {"24h": timedelta(days=1), "1h": timedelta(hours=1)},
     }
 
@@ -58,13 +59,41 @@ def make_event(event_id="event-001", recurring_id=None, start="2026-10-15T12:00:
     return event
 
 
-def run_calendar_check(events, now, state, config, bot):
-    """Run the calendar job with mocked Calendar API dependencies."""
+def run_calendar_check(events, now, state, config, bot, source="google_calendar"):
+    """Run the calendar job with the selected event source mocked."""
     context = SimpleNamespace(bot=bot, bot_data={})
+    if source == "meetup_ics":
+        config["EVENT_SOURCE"] = source
+        config["MEETUP_ICS_URL"] = "https://example.com/events.ics"
+        with patch(
+            "core.promoter.fetch_upcoming_events_for_source",
+            return_value=(events, now),
+        ):
+            asyncio.run(check_calendar(context, config, state))
+        return
+
     with patch("core.promoter.get_calendar_service_with_creds", return_value=object()), patch(
         "core.promoter.fetch_upcoming_events", return_value=(events, now)
     ):
         asyncio.run(check_calendar(context, config, state))
+
+
+def make_proactive_event(event_id="meetup-001"):
+    """Build an event inside the proactive three-day suggestion window."""
+    return make_event(
+        event_id,
+        start="2026-10-17T12:00:00+00:00",
+    )
+
+
+def prepare_proactive_check(tmp_path, event_id="meetup-001"):
+    """Build state and config for a deterministic proactive suggestion check."""
+    now = datetime(2026, 10, 15, 12, 0, tzinfo=timezone.utc)
+    state = make_state(set())
+    state["imported_events"] = {}
+    config = make_config(tmp_path)
+    config["REMINDER_RULES"]["72h"] = timedelta(days=3)
+    return now, state, config, make_proactive_event(event_id)
 
 
 def test_check_calendar_sends_subscriber_reminders_and_deduplicates(tmp_path):
@@ -208,6 +237,48 @@ def test_check_calendar_skips_groups_without_event_category(tmp_path):
     run_calendar_check([make_event()], now, state, config, bot)
 
     assert [message["chat_id"] for message in bot.messages[:2]] == [101, -100]
+
+
+def test_meetup_event_with_assigned_flyer_is_not_suggested_again(tmp_path):
+    """An imported Meetup event with an assigned flyer gets no proactive prompt."""
+    now, state, config, event = prepare_proactive_check(tmp_path)
+    state["imported_events"]["meetup_ics:meetup-001"] = {
+        "source": "meetup_ics",
+        "source_id": "meetup-001",
+        "flyer_file_id": "existing-telegram-photo",
+    }
+    bot = FakeBot()
+
+    run_calendar_check([event], now, state, config, bot, source="meetup_ics")
+
+    assert bot.messages == []
+
+
+def test_meetup_event_without_flyer_still_gets_proactive_suggestion(tmp_path):
+    """Imported events that still need flyers remain eligible for suggestions."""
+    now, state, config, event = prepare_proactive_check(tmp_path)
+    bot = FakeBot()
+
+    run_calendar_check([event], now, state, config, bot, source="meetup_ics")
+
+    assert len(bot.messages) == 1
+    assert bot.messages[0]["chat_id"] == config["ADMIN_ID"]
+    assert "Bitcoin Meetup" in bot.messages[0]["message"]
+
+
+def test_event_with_existing_generated_flyer_is_not_suggested_again(tmp_path):
+    """The existing generated-flyer state continues to prevent repeated prompts."""
+    now, state, config, event = prepare_proactive_check(tmp_path)
+    storage_key = "meetup-001_20261017T120000Z"
+    state["notified_promos"][storage_key] = {
+        "notified_thresholds": [],
+        "flyer_created": True,
+    }
+    bot = FakeBot()
+
+    run_calendar_check([event], now, state, config, bot)
+
+    assert bot.messages == []
 
 
 def test_check_calendar_stops_after_calendar_fetch_failure(tmp_path):
